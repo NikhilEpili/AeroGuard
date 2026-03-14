@@ -1,0 +1,149 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AeroGuard Docker Compose
+#
+# Services
+#   postgres   – PostgreSQL 16 + PostGIS 3.5 (persistent volume, health check)
+#   redis      – Redis 7.4 (persistent volume, health check)
+#   mosquitto  – Eclipse Mosquitto 2.0 MQTT broker (TCP 1883, WS 9001)
+#   api        – FastAPI backend (runs Alembic migrations on startup)
+#   simulator  – IoT sensor simulator (starts after api is healthy)
+#
+# Quick start
+#   cp .env.example .env          # fill in secrets
+#   docker compose up --build
+#
+# For local development with live-reload, add a docker-compose.override.yml:
+#   services:
+#     api:
+#       volumes: [".:/app"]
+#       command: ["uvicorn", "backend.main:app", "--host", "0.0.0.0",
+#                 "--port", "8000", "--reload"]
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── PostgreSQL + PostGIS ───────────────────────────────────────────────────
+  postgres:
+    image: postgis/postgis:16-3.5
+    container_name: aeroguard-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER:-aeroguard}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aeroguard}
+      POSTGRES_DB:       ${POSTGRES_DB:-aeroguard}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - aeroguard-net
+    ports:
+      - "5432:5432"   # expose for local DB clients; remove in production
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "pg_isready -U ${POSTGRES_USER:-aeroguard} -d ${POSTGRES_DB:-aeroguard}"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ── Redis ──────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7.4-alpine
+    container_name: aeroguard-redis
+    restart: unless-stopped
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    volumes:
+      - redis_data:/data
+    networks:
+      - aeroguard-net
+    ports:
+      - "6379:6379"   # expose for local Redis clients; remove in production
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ── Mosquitto MQTT broker ──────────────────────────────────────────────────
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: aeroguard-mosquitto
+    restart: unless-stopped
+    volumes:
+      - ./docker/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_logs:/mosquitto/log
+    networks:
+      - aeroguard-net
+    ports:
+      - "1883:1883"   # standard MQTT
+      - "9001:9001"   # MQTT over WebSocket
+
+  # ── FastAPI backend ────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: final
+    container_name: aeroguard-api
+    restart: unless-stopped
+    environment:
+      APP_ENV:                  ${APP_ENV:-development}
+      DEBUG:                    ${DEBUG:-true}
+      POSTGRES_HOST:            postgres
+      POSTGRES_PORT:            "5432"
+      POSTGRES_USER:            ${POSTGRES_USER:-aeroguard}
+      POSTGRES_PASSWORD:        ${POSTGRES_PASSWORD:-aeroguard}
+      POSTGRES_DB:              ${POSTGRES_DB:-aeroguard}
+      REDIS_HOST:               redis
+      REDIS_PORT:               "6379"
+      MQTT_BROKER_HOST:         mosquitto
+      MQTT_BROKER_PORT:         "1883"
+      GOOGLE_DIRECTIONS_API_KEY: ${GOOGLE_DIRECTIONS_API_KEY:-}
+    ports:
+      - "8000:8000"
+    networks:
+      - aeroguard-net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mosquitto:
+        condition: service_started
+
+  # ── IoT sensor simulator ───────────────────────────────────────────────────
+  simulator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: final
+    container_name: aeroguard-simulator
+    restart: unless-stopped
+    # Override ENTRYPOINT so the migration script is skipped entirely;
+    # the simulator only needs HTTP access to the api service.
+    entrypoint: ["python", "-m", "backend.iot.run_simulator"]
+    environment:
+      BACKEND_BASE_URL:        http://api:8000
+      SIMULATOR_INTERVAL:      "${SIMULATOR_INTERVAL:-30}"
+      SIMULATOR_SENSOR_COUNT:  "${SIMULATOR_SENSOR_COUNT:-25}"
+    networks:
+      - aeroguard-net
+    depends_on:
+      api:
+        condition: service_healthy
+
+# ── Named internal network ─────────────────────────────────────────────────
+networks:
+  aeroguard-net:
+    driver: bridge
+
+# ── Named volumes ──────────────────────────────────────────────────────────
+volumes:
+  postgres_data:
+  redis_data:
+  mosquitto_data:
+  mosquitto_logs:

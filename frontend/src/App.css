@@ -1,0 +1,233 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   AeroGuard Test Frontend – Minimal Styling
+   
+   Layout: split screen – form (left 25%) + map (right 75%)
+   ───────────────────────────────────────────────────────────────────────────── */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  background-color: #f5f5f5;
+  color: #333;
+}
+
+/* ── App Layout ──────────────────────────────────────────────────────────────── */
+
+.app-container {
+  display: flex;
+  height: 100vh;
+  gap: 0;
+}
+
+/* ── Sidebar (Form) ──────────────────────────────────────────────────────────── */
+
+.sidebar {
+  flex: 0 0 350px;
+  background-color: #fff;
+  border-right: 1px solid #ddd;
+  overflow-y: auto;
+  padding: 20px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.sidebar h2 {
+  font-size: 1.5rem;
+  margin-bottom: 20px;
+  color: #222;
+}
+
+.sidebar h3 {
+  font-size: 1.1rem;
+  margin-top: 24px;
+  margin-bottom: 12px;
+  color: #444;
+}
+
+/* ── Route Form ──────────────────────────────────────────────────────────────── */
+
+.route-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.route-form fieldset {
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 12px;
+  background-color: #fafafa;
+}
+
+.route-form legend {
+  font-weight: 600;
+  color: #333;
+  padding: 0 4px;
+}
+
+.route-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #555;
+  margin-bottom: 8px;
+}
+
+.route-form label:last-child {
+  margin-bottom: 0;
+}
+
+.route-form input {
+  padding: 8px 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  font-family: 'Courier New', monospace;
+}
+
+.route-form input:focus {
+  outline: none;
+  border-color: #00aa00;
+  box-shadow: 0 0 4px rgba(0, 170, 0, 0.3);
+}
+
+.route-form input:disabled {
+  background-color: #f0f0f0;
+  color: #999;
+  cursor: not-allowed;
+}
+
+.route-form button {
+  padding: 10px 16px;
+  background-color: #00aa00;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.route-form button:hover:not(:disabled) {
+  background-color: #008800;
+}
+
+.route-form button:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
+}
+
+/* ── Route Info Box ─────────────────────────────────────────────────────────── */
+
+.route-info {
+  margin-top: 20px;
+  padding: 12px;
+  background-color: #fffacd;
+  border: 1px solid #f0e68c;
+  border-radius: 4px;
+}
+
+.route-info dl {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px 12px;
+  font-size: 0.9rem;
+}
+
+.route-info dt {
+  font-weight: 600;
+  color: #555;
+}
+
+.route-info dd {
+  color: #333;
+  font-family: 'Courier New', monospace;
+}
+
+/* Risk level color coding */
+.risk-low {
+  color: #00aa00;
+  font-weight: 600;
+}
+
+.risk-moderate {
+  color: #ffaa00;
+  font-weight: 600;
+}
+
+.risk-high {
+  color: #ff6600;
+  font-weight: 600;
+}
+
+.risk-very\ high {
+  color: #ff3333;
+  font-weight: 600;
+}
+
+.risk-severe {
+  color: #cc0000;
+  font-weight: 600;
+}
+
+/* ── Error Box ──────────────────────────────────────────────────────────────── */
+
+.error-box {
+  margin-top: 20px;
+  padding: 12px;
+  background-color: #ffcccc;
+  border: 1px solid #ff9999;
+  border-radius: 4px;
+  color: #cc0000;
+}
+
+.error-box strong {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.error-box p {
+  font-size: 0.85rem;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+/* ── Map Container ───────────────────────────────────────────────────────────── */
+
+.map-wrapper {
+  flex: 1;
+  background-color: #e5e3df;
+}
+
+.map-container {
+  width: 100%;
+  height: 100%;
+}
+
+/* ── Responsive ────────────────────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .app-container {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    flex: 0 0 auto;
+    max-height: 40vh;
+    border-right: none;
+    border-bottom: 1px solid #ddd;
+  }
+
+  .map-wrapper {
+    flex: 1;
+  }
+}
