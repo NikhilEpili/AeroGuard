@@ -11,7 +11,7 @@ RETRY_INTERVAL=5
 echo "[entrypoint] Running Alembic migrations..."
 
 i=0
-until alembic upgrade head; do
+until python -m alembic upgrade head; do
     i=$((i + 1))
     if [ "$i" -ge "$MAX_RETRIES" ]; then
         echo "[entrypoint] ERROR: migrations failed after ${MAX_RETRIES} attempts. Aborting."
@@ -22,5 +22,10 @@ until alembic upgrade head; do
 done
 
 echo "[entrypoint] Migrations complete. Starting application..."
+
+if [ "$1" = "uvicorn" ]; then
+    shift
+    set -- python -m uvicorn "$@"
+fi
 
 exec "$@"

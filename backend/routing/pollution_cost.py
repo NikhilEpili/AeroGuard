@@ -10,6 +10,16 @@ class PollutionCostCalculator:
     """Route exposure scoring based on AQI along sampled route points."""
 
     EARTH_RADIUS_M = 6_371_000.0
+    SPEED_KMPH_BY_MODE = {
+        "walking": 5.0,
+        "cycling": 15.0,
+        "driving": 30.0,
+    }
+    ACTIVITY_FACTOR_BY_MODE = {
+        "walking": 1.6,
+        "cycling": 2.0,
+        "driving": 1.0,
+    }
 
     def distance(self, point_a: dict[str, float], point_b: dict[str, float]) -> float:
         """Haversine distance in meters between two coordinates."""
@@ -35,6 +45,9 @@ class PollutionCostCalculator:
         self,
         route_geometry: Sequence[dict[str, float]],
         pollution_grid: Sequence[dict[str, float | int]],
+        duration_minutes: float | None = None,
+        travel_mode: str = "walking",
+        strategy: str = "",
         sample_distance_m: int = 100,
         chunk_size: int = 2_000,
     ) -> dict[str, float | str]:
@@ -62,22 +75,95 @@ class PollutionCostCalculator:
         nearest_aqi = self._nearest_grid_aqi(sampled_points, filtered_grid, chunk_size=chunk_size)
 
         distances_km = np.array([p["distance_km"] for p in sampled_points], dtype=np.float64)
-        exposure_values = nearest_aqi * distances_km
-
-        total_exposure = float(np.sum(exposure_values))
         total_distance_km = float(np.sum(distances_km))
-        average_aqi = float(total_exposure / total_distance_km) if total_distance_km > 0 else 0.0
+
+        # Segment exposure simulation:
+        # segment_time = distance / average_speed
+        # breathing_rate = activity_factor
+        # segment_exposure = pm25 * segment_time * breathing_rate
+        speed_kmph = self.SPEED_KMPH_BY_MODE.get(str(travel_mode).lower(), 5.0)
+        breathing_rate = self.ACTIVITY_FACTOR_BY_MODE.get(str(travel_mode).lower(), 1.0)
+
+        segment_time_hours = np.clip(distances_km / max(float(speed_kmph), 0.1), a_min=0.0, a_max=None)
+
+        if duration_minutes is not None and duration_minutes > 0 and total_distance_km > 0:
+            # Keep provider ETA consistent by scaling segment times to requested duration.
+            expected_total_hours = float(duration_minutes) / 60.0
+            base_total_hours = float(np.sum(segment_time_hours))
+            if base_total_hours > 0:
+                segment_time_hours = segment_time_hours * (expected_total_hours / base_total_hours)
+
+        exposure_values = nearest_aqi * segment_time_hours * float(breathing_rate)
+        total_time_hours = float(np.sum(segment_time_hours))
+        average_aqi = float(np.sum(nearest_aqi * segment_time_hours) / total_time_hours) if total_time_hours > 0 else 0.0
+
+        traffic_factor, road_factor = self._contextual_factors(travel_mode=travel_mode, strategy=strategy)
+        total_exposure = float(np.sum(exposure_values)) * traffic_factor * road_factor
 
         return {
             "total_exposure": round(total_exposure, 3),
             "average_aqi": round(average_aqi, 2),
+            "traffic_factor": round(traffic_factor, 2),
+            "road_factor": round(road_factor, 2),
+            "breathing_rate": round(float(breathing_rate), 2),
+            "total_time_hours": round(total_time_hours, 3),
             "risk_level": self._risk_level(average_aqi),
         }
 
-    def segment_cost(self, pm25: float, pm10: float, no2: float, distance_km: float) -> float:
-        """Backward-compatible legacy segment scoring used by existing service code."""
-        pollutant_weight = (pm25 * 0.5) + (pm10 * 0.3) + (no2 * 0.2)
-        return round(pollutant_weight * max(distance_km, 0.1), 3)
+    def segment_cost(
+        self,
+        *,
+        distance_km: float,
+        average_speed_kmph: float,
+        pm25: float,
+        traffic_density: float = 0.0,
+        high_aqi_penalty: float = 0.0,
+        pm10: float | None = None,
+        no2: float | None = None,
+    ) -> float:
+        """Compute segment cost with distance, exposure, traffic, and AQI penalty.
+
+        Formula:
+          segment_time = distance / average_speed
+          pollution_exposure = pm25 * segment_time
+          segment_cost =
+              0.3 * distance +
+              0.4 * pollution_exposure +
+              0.2 * traffic_density +
+              0.1 * high_aqi_penalty
+
+        `pm10` and `no2` are accepted for backward compatibility.
+        """
+        distance = max(float(distance_km), 0.0)
+        speed = max(float(average_speed_kmph), 0.1)
+        pm25_val = max(float(pm25), 0.0)
+
+        segment_time = distance / speed
+        pollution_exposure = pm25_val * segment_time
+
+        traffic_component = max(float(traffic_density), 0.0)
+        penalty_component = max(float(high_aqi_penalty), 0.0)
+
+        cost = (
+            (0.3 * distance)
+            + (0.4 * pollution_exposure)
+            + (0.2 * traffic_component)
+            + (0.1 * penalty_component)
+        )
+        return round(cost, 3)
+
+    def cumulative_route_score(self, segments: Sequence[dict[str, float]]) -> float:
+        """Return cumulative route score from per-segment inputs."""
+        total = 0.0
+        for segment in segments:
+            total += self.segment_cost(
+                distance_km=float(segment.get("distance_km", 0.0)),
+                average_speed_kmph=float(segment.get("average_speed_kmph", 0.0)),
+                pm25=float(segment.get("pm25", 0.0)),
+                traffic_density=float(segment.get("traffic_density", 0.0)),
+                high_aqi_penalty=float(segment.get("high_aqi_penalty", 0.0)),
+            )
+        return round(total, 3)
 
     def _sample_route_points(
         self,
@@ -160,7 +246,10 @@ class PollutionCostCalculator:
     ) -> np.ndarray:
         grid_lat = np.array([float(cell["center_lat"]) for cell in pollution_grid], dtype=np.float64)
         grid_lon = np.array([float(cell["center_lon"]) for cell in pollution_grid], dtype=np.float64)
-        grid_aqi = np.array([float(cell["aqi"]) for cell in pollution_grid], dtype=np.float64)
+        grid_aqi = np.array(
+            [float(cell.get("pm25", cell.get("aqi", 0.0))) for cell in pollution_grid],
+            dtype=np.float64,
+        )
 
         sample_lat = np.array([float(point["lat"]) for point in sampled_points], dtype=np.float64)
         sample_lon = np.array([float(point["lng"]) for point in sampled_points], dtype=np.float64)
@@ -198,3 +287,22 @@ class PollutionCostCalculator:
         if average_aqi <= 200:
             return "Very High"
         return "Severe"
+
+    def _contextual_factors(self, travel_mode: str, strategy: str) -> tuple[float, float]:
+        traffic_factor_map = {
+            "driving": 1.30,
+            "cycling": 1.10,
+            "walking": 0.90,
+        }
+        traffic_factor = traffic_factor_map.get(str(travel_mode).lower(), 1.0)
+
+        strategy_name = str(strategy).lower()
+        road_factor = 1.0
+        if "highway" in strategy_name or "fastest" in strategy_name:
+            road_factor = 1.15
+        elif "park" in strategy_name or "green" in strategy_name:
+            road_factor = 0.80
+        elif "balanced" in strategy_name:
+            road_factor = 0.95
+
+        return traffic_factor, road_factor

@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from geoalchemy2 import Geometry
 from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from backend.db.database import Base
@@ -61,3 +62,30 @@ class RouteCache(Base):
     exposure_score: Mapped[Decimal] = mapped_column(Numeric(10, 3), nullable=False)
     route_geometry: Mapped[object] = mapped_column(Geometry(geometry_type="LINESTRING", srid=4326, spatial_index=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+class RoadSegment(Base):
+    __tablename__ = "road_segments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    start_node_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+    end_node_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+
+    start_lat: Mapped[Decimal] = mapped_column(Numeric(9, 6), nullable=False)
+    start_lon: Mapped[Decimal] = mapped_column(Numeric(9, 6), nullable=False)
+    end_lat: Mapped[Decimal] = mapped_column(Numeric(9, 6), nullable=False)
+    end_lon: Mapped[Decimal] = mapped_column(Numeric(9, 6), nullable=False)
+
+    travel_mode: Mapped[str] = mapped_column(String(16), index=True, nullable=False)
+    zone_id: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+
+    distance_km: Mapped[Decimal] = mapped_column(Numeric(10, 4), nullable=False)
+    travel_time_minutes: Mapped[Decimal] = mapped_column(Numeric(10, 4), nullable=False)
+    pm25: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    traffic_factor: Mapped[Decimal] = mapped_column(Numeric(6, 3), nullable=False)
+    road_factor: Mapped[Decimal] = mapped_column(Numeric(6, 3), nullable=False)
+    exposure_cost: Mapped[Decimal] = mapped_column(Numeric(12, 4), index=True, nullable=False)
+
+    landmark_distances: Mapped[dict[str, float] | None] = mapped_column(JSONB, nullable=True)
+    segment_geom: Mapped[object] = mapped_column(Geometry(geometry_type="LINESTRING", srid=4326, spatial_index=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

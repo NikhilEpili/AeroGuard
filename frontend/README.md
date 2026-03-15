@@ -26,6 +26,14 @@ npm install
 npm run dev
 ```
 
+Optional frontend env override:
+
+```bash
+cp .env.example .env
+```
+
+Use `VITE_API_BASE_URL` to point the frontend to your backend (default is `http://localhost:8000`).
+
 The dev server will start on **http://localhost:3000**.
 
 ### Usage
@@ -82,7 +90,7 @@ Outputs static files to `dist/`.
 
 ## Notes
 
-- **CORS**: Make sure the backend allows requests from `localhost:3000`. Configure in FastAPI if needed.
+- **CORS**: Backend must allow browser origins like `localhost:3000` / `localhost:5173`.
 - **Polyline decoding**: Uses standard Google Maps polyline encoding format.
 - **Markers**: Green = start, red = end. Route shown as green dashed line.
 - **Map tiles**: OpenStreetMap (free, no API key required).

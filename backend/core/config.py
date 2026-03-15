@@ -22,7 +22,25 @@ class Settings(BaseSettings):
     mqtt_broker_host: str = Field(default="mosquitto", alias="MQTT_BROKER_HOST")
     mqtt_broker_port: int = Field(default=1883, alias="MQTT_BROKER_PORT")
 
-    google_directions_api_key: str | None = Field(default=None, alias="GOOGLE_DIRECTIONS_API_KEY")
+    openrouteservice_api_key: str | None = Field(default=None, alias="OPENROUTESERVICE_API_KEY")
+    openrouteservice_base_url: str = Field(default="https://api.openrouteservice.org", alias="OPENROUTESERVICE_BASE_URL")
+    osrm_base_url: str = Field(default="http://localhost:5000", alias="OSRM_BASE_URL")
+
+    route_weight_pollution: float = Field(default=0.7, alias="ROUTE_WEIGHT_POLLUTION")
+    route_weight_duration: float = Field(default=0.2, alias="ROUTE_WEIGHT_DURATION")
+    route_weight_distance: float = Field(default=0.1, alias="ROUTE_WEIGHT_DISTANCE")
+
+    openaq_base_url: str = Field(default="https://api.openaq.org/v3", alias="OPENAQ_BASE_URL")
+    openaq_radius_m: int = Field(default=12000, alias="OPENAQ_RADIUS_M")
+    openaq_location_limit: int = Field(default=100, alias="OPENAQ_LOCATION_LIMIT")
+
+    city_min_lat: float = Field(default=18.88, alias="CITY_MIN_LAT")
+    city_min_lon: float = Field(default=72.73, alias="CITY_MIN_LON")
+    city_max_lat: float = Field(default=19.30, alias="CITY_MAX_LAT")
+    city_max_lon: float = Field(default=73.05, alias="CITY_MAX_LON")
+
+    pollution_grid_refresh_seconds: int = Field(default=300, alias="POLLUTION_GRID_REFRESH_SECONDS")
+    pollution_grid_cell_size_m: int = Field(default=100, alias="POLLUTION_GRID_CELL_SIZE_M")
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

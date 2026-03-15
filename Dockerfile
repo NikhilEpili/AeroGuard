@@ -24,11 +24,11 @@ RUN addgroup --system appgroup \
 
 WORKDIR /app
 
-# Copy virtual environment from builder (layer-cached separately from source)
-COPY --from=builder /build/.venv .venv
-
-# Copy application source and config
+# Copy application source and config first
 COPY --chown=appuser:appgroup . .
+
+# Copy virtual environment from builder LAST so host .venv cannot overwrite it
+COPY --from=builder /build/.venv .venv
 
 # Make entrypoint executable (runs as root before USER directive)
 RUN chmod +x /app/docker/entrypoint.sh
@@ -44,4 +44,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
         || exit 1
 
 ENTRYPOINT ["/app/docker/entrypoint.sh"]
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
