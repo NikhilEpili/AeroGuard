@@ -85,6 +85,7 @@ class DirectionsService:
         profile = {
             "walking": "foot-walking",
             "cycling": "cycling-regular",
+            "bike": "cycling-regular",
             "driving": "driving-car",
         }.get(travel_mode, "foot-walking")
         url = f"{self.settings.openrouteservice_base_url}{self.ORS_DIRECTIONS_PATH.format(profile=profile)}"
@@ -212,6 +213,7 @@ class DirectionsService:
         profile = {
             "walking": "foot",
             "cycling": "bike",
+            "bike": "bike",
             "driving": "driving",
         }.get(travel_mode, "foot")
 
@@ -381,6 +383,7 @@ class DirectionsService:
         profile = {
             "walking": "foot",
             "cycling": "bike",
+            "bike": "bike",
             "driving": "driving",
         }.get(str(travel_mode).lower(), "foot")
 

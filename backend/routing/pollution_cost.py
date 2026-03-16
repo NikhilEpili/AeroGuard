@@ -13,12 +13,20 @@ class PollutionCostCalculator:
     SPEED_KMPH_BY_MODE = {
         "walking": 5.0,
         "cycling": 15.0,
+        "bike": 15.0,
         "driving": 30.0,
     }
     ACTIVITY_FACTOR_BY_MODE = {
         "walking": 1.6,
         "cycling": 2.0,
+        "bike": 2.0,
         "driving": 1.0,
+    }
+    EMISSION_FACTOR_BY_MODE = {
+        "walking": 0.0,
+        "cycling": 0.0,
+        "bike": 0.0,
+        "driving": 0.5,
     }
 
     def distance(self, point_a: dict[str, float], point_b: dict[str, float]) -> float:
@@ -99,6 +107,11 @@ class PollutionCostCalculator:
 
         traffic_factor, road_factor = self._contextual_factors(travel_mode=travel_mode, strategy=strategy)
         total_exposure = float(np.sum(exposure_values)) * traffic_factor * road_factor
+
+        # Add emission penalty for polluting transport modes
+        emission_factor = self.EMISSION_FACTOR_BY_MODE.get(str(travel_mode).lower(), 0.0)
+        emission_penalty = float(np.sum(nearest_aqi * distances_km)) * emission_factor
+        total_exposure += emission_penalty
 
         return {
             "total_exposure": round(total_exposure, 3),
@@ -247,7 +260,7 @@ class PollutionCostCalculator:
         grid_lat = np.array([float(cell["center_lat"]) for cell in pollution_grid], dtype=np.float64)
         grid_lon = np.array([float(cell["center_lon"]) for cell in pollution_grid], dtype=np.float64)
         grid_aqi = np.array(
-            [float(cell.get("pm25", cell.get("aqi", 0.0))) for cell in pollution_grid],
+            [float(cell.get("pollution_score", cell.get("pm25", cell.get("aqi", 0.0)))) for cell in pollution_grid],
             dtype=np.float64,
         )
 
