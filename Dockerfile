@@ -30,8 +30,8 @@ COPY --chown=appuser:appgroup . .
 # Copy virtual environment from builder LAST so host .venv cannot overwrite it
 COPY --from=builder /build/.venv .venv
 
-# Make entrypoint executable (runs as root before USER directive)
-RUN chmod +x /app/docker/entrypoint.sh
+# Fix line endings for shell scripts and make entrypoint executable
+RUN sed -i 's/\r$//' docker/entrypoint.sh && chmod +x docker/entrypoint.sh
 
 USER appuser
 

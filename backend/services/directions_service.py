@@ -285,26 +285,26 @@ class DirectionsService:
             (mid_lat - (normal_lat * offset), mid_lon - (normal_lon * offset)),
         ]
 
+    def get_synthetic_candidates(
+        self,
+        origin: tuple[float, float],
+        destination: tuple[float, float],
+    ) -> list[dict]:
+        """Return three geometrically distinct synthetic candidates.
+
+        Used by ``RouteController`` to pad the candidate pool when OSRM
+        returns fewer than three unique routes (e.g. short trips where
+        only one road exists between the two points).
+
+        Candidate shapes
+        ----------------
+        1. Straight (fastest-biased)  – direct O→D line
+        2. L-shape  (balanced-biased) – go north/south first then east/west
+        3. U-shape  (safe-biased)     – detour around the mid-point
+        """
+        return self._fallback_candidates(origin, destination)
+
     def merge_unique_routes(self, routes: list[dict | None]) -> list[dict]:
-            def get_synthetic_candidates(
-                self,
-                origin: tuple[float, float],
-                destination: tuple[float, float],
-            ) -> list[dict]:
-                """Return three geometrically distinct synthetic candidates.
-
-                Used by ``RouteController`` to pad the candidate pool when OSRM
-                returns fewer than three unique routes (e.g. short trips where
-                only one road exists between the two points).
-
-                Candidate shapes
-                ----------------
-                1. Straight (fastest-biased)  – direct O→D line
-                2. L-shape  (balanced-biased) – go north/south first then east/west
-                3. U-shape  (safe-biased)     – detour around the mid-point
-                """
-                return self._fallback_candidates(origin, destination)
-
         unique: list[dict] = []
         seen: set[str] = set()
 
