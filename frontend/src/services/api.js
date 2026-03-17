@@ -89,16 +89,18 @@ export const geocodeLocation = async (locationQuery) => {
  * @param {number} startLon - Starting longitude
  * @param {number} endLat - Destination latitude
  * @param {number} endLon - Destination longitude
+ * @param {string} travelMode - Travel mode ('walking', 'cycling', 'bike', 'driving')
  * @returns {Promise<Object>} Route data including geometry, scores, and metadata
  */
-export const fetchSafeRoute = async (startLat, startLon, endLat, endLon) => {
+export const fetchSafeRoute = async (startLat, startLon, endLat, endLon, travelMode = 'walking') => {
   try {
     const response = await axios.get(`${API_BASE_URL}/api/v1/routes/safe-route`, {
       params: {
         start_lat: startLat,
         start_lon: startLon,
         end_lat: endLat,
-        end_lon: endLon
+        end_lon: endLon,
+        travel_mode: travelMode
       },
       timeout: 10000
     })

@@ -72,12 +72,14 @@ function App() {
   const [hoveredRouteType, setHoveredRouteType] = useState(null)
   const [resolvedPlaces, setResolvedPlaces] = useState(null)
   const [pinMarkers, setPinMarkers] = useState({ start: null, end: null })
+  const [formKey, setFormKey] = useState(0)
 
   // 'start' | 'end' — which point the next map click will set
   const [nextClickSets, setNextClickSets] = useState('start')
   // Controlled display values for each autocomplete (updated by map clicks)
   const [startDisplayValue, setStartDisplayValue] = useState(null)
   const [endDisplayValue, setEndDisplayValue]     = useState(null)
+  const [travelMode, setTravelMode] = useState('walking')
 
   // Place a pin immediately when user selects from autocomplete dropdown
   const handlePlaceSelect = React.useCallback((type, place) => {
@@ -97,27 +99,35 @@ function App() {
     // Reverse geocode in background
     try {
       const resolved = await reverseGeocode(lat, lon)
-      setPinMarkers((prev) => ({ ...prev, [role]: resolved }))
+      setPinMarkers((prev) => ({ ...prev, [role]: { ...coords, displayName: resolved.displayName } }))
       if (role === 'start') setStartDisplayValue(resolved.displayName)
       else                  setEndDisplayValue(resolved.displayName)
     } catch {
+      setPinMarkers((prev) => ({ ...prev, [role]: coords }))
       if (role === 'start') setStartDisplayValue(`${lat.toFixed(5)}, ${lon.toFixed(5)}`)
       else                  setEndDisplayValue(`${lat.toFixed(5)}, ${lon.toFixed(5)}`)
     }
   }, [nextClickSets])
 
-  const handleFindRoute = async ({ startPlace, endPlace }) => {
+  const handleFindRoute = async ({ startPlace, endPlace, travelMode }) => {
     setLoading(true)
     setError(null)
     setMapError(null)
 
     try {
-      // Skip geocoding when coords were already resolved by autocomplete selection
+      // Use pinMarkers if available (from map clicks or autocomplete), else geocode
+      const startMarker = pinMarkers.start
+      const endMarker = pinMarkers.end
+
       const [startPoint, endPoint] = await Promise.all([
-        startPlace.lat != null
+        startMarker && startMarker.lat != null
+          ? Promise.resolve({ lat: startMarker.lat, lon: startMarker.lon, displayName: startMarker.displayName })
+          : startPlace.lat != null
           ? Promise.resolve({ lat: startPlace.lat, lon: startPlace.lon, displayName: startPlace.displayName })
           : geocodeLocation(startPlace.displayName),
-        endPlace.lat != null
+        endMarker && endMarker.lat != null
+          ? Promise.resolve({ lat: endMarker.lat, lon: endMarker.lon, displayName: endMarker.displayName })
+          : endPlace.lat != null
           ? Promise.resolve({ lat: endPlace.lat, lon: endPlace.lon, displayName: endPlace.displayName })
           : geocodeLocation(endPlace.displayName)
       ])
@@ -129,7 +139,8 @@ function App() {
         startPoint.lat,
         startPoint.lon,
         endPoint.lat,
-        endPoint.lon
+        endPoint.lon,
+        travelMode
       )
       const candidates = buildRouteOptions(data)
 
@@ -145,6 +156,7 @@ function App() {
       setHoveredRouteType(null)
       setSafestIndex(candidates.findIndex((item) => item.route_type === 'safe'))
       setHeatmapPoints(heatmap)
+      setFormKey(prev => prev + 1)
     } catch (err) {
       setError(
         err.response?.data?.detail ||
@@ -195,11 +207,14 @@ function App() {
         </section>
 
         <RouteForm
+          key={formKey}
           onSubmit={handleFindRoute}
           loading={loading}
           onPlaceSelect={handlePlaceSelect}
           startDisplayValue={startDisplayValue}
           endDisplayValue={endDisplayValue}
+          travelMode={travelMode}
+          onTravelModeChange={setTravelMode}
         />
 
         {resolvedPlaces && (

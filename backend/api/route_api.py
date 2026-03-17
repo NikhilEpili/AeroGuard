@@ -36,7 +36,7 @@ class RouteRequest(BaseModel):
     origin_lng: float = Field(..., ge=-180, le=180)
     destination_lat: float = Field(..., ge=-90, le=90)
     destination_lng: float = Field(..., ge=-180, le=180)
-    travel_mode: Literal["walking", "cycling", "driving"] = "walking"
+    travel_mode: Literal["walking", "cycling", "bike", "driving"] = "walking"
 
 
 class RouteOption(BaseModel):
@@ -140,7 +140,7 @@ async def get_safe_route_cached(
     start_lon: float = Query(..., ge=-180, le=180),
     end_lat: float = Query(..., ge=-90, le=90),
     end_lon: float = Query(..., ge=-180, le=180),
-    travel_mode: Literal["walking", "cycling", "driving"] = Query("walking"),
+    travel_mode: Literal["walking", "cycling", "bike", "driving"] = Query("walking"),
     route_type: Literal["fastest", "balanced", "cleanest", "safest"] = Query("cleanest"),
     use_predicted_pollution: bool = Query(False),
 ) -> SafeRouteCachedResponse:
@@ -248,7 +248,7 @@ async def precompute_graph_segments(
     max_lat: float = Query(19.30, ge=-90, le=90),
     max_lon: float = Query(73.05, ge=-180, le=180),
     grid_size_m: int = Query(200, ge=100, le=2000),
-    travel_mode: Literal["walking", "cycling", "driving"] = Query("walking"),
+    travel_mode: Literal["walking", "cycling", "bike", "driving"] = Query("walking"),
     replace_existing: bool = Query(True),
     db: Session = Depends(get_db),
 ) -> GraphPrecomputeResponse:

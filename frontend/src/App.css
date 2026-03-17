@@ -87,6 +87,31 @@ body {
   color: #fff;
 }
 
+.travel-mode-buttons {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.travel-mode-buttons button {
+  flex: 1;
+  min-width: 80px;
+  border: 1px solid #d0dbe8;
+  border-radius: 10px;
+  background: #f8fbff;
+  color: #344054;
+  padding: 8px 10px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.travel-mode-buttons button.active {
+  background: #10b981;
+  border-color: #10b981;
+  color: #fff;
+}
+
 .route-form {
   display: flex;
   flex-direction: column;
