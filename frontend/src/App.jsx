@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import RouteForm from './components/RouteForm'
 import MapView from './components/MapView'
-import { fetchPollutionGrid, fetchSafeRoute, geocodeLocation, reverseGeocode } from './services/api'
+import { fetchSafeRoute, geocodeLocation, reverseGeocode } from './services/api'
 import { buildRouteOptions, defaultSelectedRouteType } from './services/routeService'
 import './App.css'
 
@@ -63,7 +63,6 @@ function App() {
   const [route, setRoute] = useState(null)
   const [routes, setRoutes] = useState([])
   const [safestIndex, setSafestIndex] = useState(null)
-  const [heatmapPoints, setHeatmapPoints] = useState([])
   const [mapTheme, setMapTheme] = useState('light')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
@@ -80,6 +79,63 @@ function App() {
   const [startDisplayValue, setStartDisplayValue] = useState(null)
   const [endDisplayValue, setEndDisplayValue]     = useState(null)
   const [travelMode, setTravelMode] = useState('walking')
+  const prevTravelModeRef = React.useRef('walking')
+
+  // Function to refetch routes with current markers and specified travel mode
+  const refetchRoutes = React.useCallback(async (mode = travelMode) => {
+    if (!pinMarkers.start || !pinMarkers.end) return
+
+    setLoading(true)
+    setError(null)
+    setMapError(null)
+
+    try {
+      const startPoint = pinMarkers.start
+      const endPoint = pinMarkers.end
+
+      const data = await fetchSafeRoute(
+        startPoint.lat,
+        startPoint.lon,
+        endPoint.lat,
+        endPoint.lon,
+        mode
+      )
+      const candidates = buildRouteOptions(data)
+
+      setResolvedPlaces({
+        start: startPoint.displayName,
+        destination: endPoint.displayName
+      })
+      setRoute(data)
+      setRoutes(candidates)
+      setSelectedRouteType(defaultSelectedRouteType(candidates))
+      setHoveredRouteType(null)
+      setSafestIndex(candidates.findIndex((item) => item.route_type === 'safe'))
+      setFormKey(prev => prev + 1)
+    } catch (err) {
+      setError(
+        err.response?.data?.detail ||
+        err.message ||
+        'Failed to find route for the provided locations'
+      )
+      setResolvedPlaces(null)
+      setRoute(null)
+      setRoutes([])
+      setSafestIndex(null)
+      setSelectedRouteType('safe')
+      setHoveredRouteType(null)
+    } finally {
+      setLoading(false)
+    }
+  }, [pinMarkers.start, pinMarkers.end, travelMode])
+
+  // Auto-refetch routes when travel mode changes (if we have start/end set and routes already loaded)
+  React.useEffect(() => {
+    if (pinMarkers.start && pinMarkers.end && routes.length > 0 && prevTravelModeRef.current !== travelMode) {
+      refetchRoutes(travelMode)
+      prevTravelModeRef.current = travelMode
+    }
+  }, [travelMode, pinMarkers.start, pinMarkers.end, routes.length, refetchRoutes])
 
   // Place a pin immediately when user selects from autocomplete dropdown
   const handlePlaceSelect = React.useCallback((type, place) => {
@@ -109,7 +165,7 @@ function App() {
     }
   }, [nextClickSets])
 
-  const handleFindRoute = async ({ startPlace, endPlace, travelMode }) => {
+  const handleFindRoute = async ({ startPlace, endPlace, travelMode: formTravelMode }) => {
     setLoading(true)
     setError(null)
     setMapError(null)
@@ -135,28 +191,7 @@ function App() {
       // Ensure pins are always shown after submit (covers manual text entry)
       setPinMarkers({ start: startPoint, end: endPoint })
 
-      const data = await fetchSafeRoute(
-        startPoint.lat,
-        startPoint.lon,
-        endPoint.lat,
-        endPoint.lon,
-        travelMode
-      )
-      const candidates = buildRouteOptions(data)
-
-      const heatmap = await fetchPollutionGrid()
-
-      setResolvedPlaces({
-        start: startPoint.displayName,
-        destination: endPoint.displayName
-      })
-      setRoute(data)
-      setRoutes(candidates)
-      setSelectedRouteType(defaultSelectedRouteType(candidates))
-      setHoveredRouteType(null)
-      setSafestIndex(candidates.findIndex((item) => item.route_type === 'safe'))
-      setHeatmapPoints(heatmap)
-      setFormKey(prev => prev + 1)
+      await refetchRoutes(formTravelMode)
     } catch (err) {
       setError(
         err.response?.data?.detail ||
@@ -167,10 +202,8 @@ function App() {
       setRoute(null)
       setRoutes([])
       setSafestIndex(null)
-      setHeatmapPoints([])
       setSelectedRouteType('safe')
       setHoveredRouteType(null)
-    } finally {
       setLoading(false)
     }
   }
@@ -329,11 +362,10 @@ function App() {
             📍 Click map to set <strong>{nextClickSets === 'start' ? 'Start' : 'Destination'}</strong>
           </div>
         )}
-        <MapErrorBoundary resetKey={`${mapTheme}:${routes.length}:${heatmapPoints.length}`} onError={setMapError}>
+        <MapErrorBoundary resetKey={`${mapTheme}:${routes.length}:${pinMarkers.start?.lat || 0}:${pinMarkers.end?.lat || 0}`} onError={setMapError}>
           <MapView
             routes={routes}
             safestIndex={safestIndex}
-            heatmapPoints={heatmapPoints}
             mapTheme={mapTheme}
             pinMarkers={pinMarkers}
             onMapClick={handleMapClick}

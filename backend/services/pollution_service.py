@@ -21,9 +21,16 @@ class PollutionService:
         self.interpolator = PollutionInterpolator()
         self.cost_calculator = PollutionCostCalculator()
         self._sample_points = [
-            {"latitude": 19.0760, "longitude": 72.8777, "pm25": 54.0, "pm10": 92.0, "no2": 31.0},
-            {"latitude": 19.1000, "longitude": 72.8500, "pm25": 63.0, "pm10": 101.0, "no2": 39.0},
-            {"latitude": 19.1364, "longitude": 72.9042, "pm25": 47.0, "pm10": 83.0, "no2": 27.0},
+            {"latitude": 19.0760, "longitude": 72.8777, "pm25": 54.0, "pm10": 92.0, "no2": 31.0},  # Bandra
+            {"latitude": 19.1000, "longitude": 72.8500, "pm25": 63.0, "pm10": 101.0, "no2": 39.0},  # Andheri
+            {"latitude": 19.1364, "longitude": 72.9042, "pm25": 47.0, "pm10": 83.0, "no2": 27.0},  # Powai
+            {"latitude": 19.0178, "longitude": 72.8577, "pm25": 72.0, "pm10": 115.0, "no2": 45.0},  # Dadar (high pollution)
+            {"latitude": 19.0607, "longitude": 72.8365, "pm25": 58.0, "pm10": 93.0, "no2": 36.0},  # Mahim
+            {"latitude": 19.1136, "longitude": 72.8697, "pm25": 49.0, "pm10": 79.0, "no2": 29.0},  # Goregaon
+            {"latitude": 18.9750, "longitude": 72.8258, "pm25": 85.0, "pm10": 136.0, "no2": 52.0},  # Colaba (very high)
+            {"latitude": 19.0400, "longitude": 72.8650, "pm25": 41.0, "pm10": 66.0, "no2": 25.0},  # Lower Parel (lower)
+            {"latitude": 19.1200, "longitude": 72.9300, "pm25": 38.0, "pm10": 61.0, "no2": 23.0},  # Mulund (cleaner)
+            {"latitude": 19.0800, "longitude": 72.9000, "pm25": 55.0, "pm10": 88.0, "no2": 33.0},  # Vikhroli
         ]
         self._rng = Random(42)
         self._grid_cache: dict[str, list[dict[str, float | int]]] = {}
@@ -41,6 +48,7 @@ class PollutionService:
             speed_kmph = {
                 "walking": 5.0,
                 "cycling": 15.0,
+                "bike": 20.0,
                 "driving": 30.0,
             }.get(str(candidate.get("travel_mode", "walking")).lower(), 5.0)
 

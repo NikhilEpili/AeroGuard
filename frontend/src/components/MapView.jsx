@@ -1,22 +1,17 @@
 import React, { useCallback, useEffect, useRef } from 'react'
 import maplibregl from 'maplibre-gl'
 import { clearRouteLayers, collectRouteBounds, syncRouteLayers } from './MapRoutes'
-import { HEATMAP_LYR, HEATMAP_SRC, initHeatmapLayer, updateHeatmapData } from './HeatmapLayer'
 
 const MUMBAI_CENTER = [72.8777, 19.0760]
 const MUMBAI_ZOOM = 11
 const LIGHT_STYLE_URL = import.meta.env.VITE_MAP_STYLE_LIGHT_URL || ''
 
 const LIGHT_RASTER_TILES = [
-  'https://a.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
-  'https://b.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
-  'https://c.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png',
-  'https://d.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}@2x.png'
+  'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
 ]
 
 const SHARED_ATTRIBUTION =
-  '© <a href="https://www.openstreetmap.org/">OpenStreetMap</a> ' +
-  '© <a href="https://carto.com/">CARTO</a>'
+  '© <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
 
 const buildLightRasterStyle = () => ({
   version: 8,
@@ -29,6 +24,19 @@ const buildLightRasterStyle = () => ({
     }
   },
   layers: [{ id: 'carto-light-bg', type: 'raster', source: 'carto-light' }]
+})
+
+// Fallback style with no external dependencies
+const buildBasicStyle = () => ({
+  version: 8,
+  sources: {},
+  layers: [{
+    id: 'background',
+    type: 'background',
+    paint: {
+      'background-color': '#f0f0f0'
+    }
+  }]
 })
 
 const buildDarkStyle = () => ({
@@ -98,21 +106,12 @@ const sanitizeStyle = (style) => {
 }
 
 const resolveLightStyle = async () => {
-  if (!LIGHT_STYLE_URL) {
-    return buildLightRasterStyle()
-  }
-
+  // Always use raster fallback for now to avoid style loading issues
   try {
-    const response = await fetch(LIGHT_STYLE_URL, { headers: { Accept: 'application/json' } })
-    if (!response.ok) {
-      throw new Error(`Light map style request failed with ${response.status}`)
-    }
-
-    const rawStyle = await response.json()
-    return sanitizeStyle(rawStyle)
-  } catch (error) {
-    console.warn('[MapView] Falling back to raster light style.', error)
     return buildLightRasterStyle()
+  } catch (error) {
+    console.warn('Failed to build raster style, using basic style:', error)
+    return buildBasicStyle()
   }
 }
 
@@ -144,7 +143,6 @@ const createPinEl = (color) => {
 
 const MapView = ({
   routes = [],
-  heatmapPoints = [],
   mapTheme = 'light',
   pinMarkers,
   onMapClick,
@@ -160,7 +158,6 @@ const MapView = ({
   const disposedRef = useRef(false)
 
   const routesRef = useRef(routes)
-  const heatmapRef = useRef(heatmapPoints)
   const pinMarkersRef = useRef(pinMarkers)
   const themeRef = useRef(mapTheme)
   const onMapClickRef = useRef(onMapClick)
@@ -172,7 +169,6 @@ const MapView = ({
   const endMarkerRef = useRef(null)
 
   useEffect(() => { routesRef.current = routes }, [routes])
-  useEffect(() => { heatmapRef.current = heatmapPoints }, [heatmapPoints])
   useEffect(() => { pinMarkersRef.current = pinMarkers }, [pinMarkers])
   useEffect(() => { themeRef.current = mapTheme }, [mapTheme])
   useEffect(() => { onMapClickRef.current = onMapClick }, [onMapClick])
@@ -184,17 +180,6 @@ const MapView = ({
     console.error('[MapView]', error)
     onMapErrorRef.current?.(toErrorMessage(error, fallback))
   }, [])
-
-  const updateHeatmap = useCallback(() => {
-    const map = mapRef.current
-    if (!map || !styleReadyRef.current) return
-
-    try {
-      updateHeatmapData(map, heatmapRef.current)
-    } catch (error) {
-      reportMapError(error, 'Unable to update the pollution heatmap.')
-    }
-  }, [reportMapError])
 
   const updateMarkers = useCallback(() => {
     const map = mapRef.current
@@ -287,18 +272,10 @@ const MapView = ({
     if (!map) return
     styleReadyRef.current = true
 
-    try {
-      initHeatmapLayer(map, heatmapRef.current)
-    } catch (error) {
-      reportMapError(error, 'Unable to initialize the map style.')
-      return
-    }
-
     drawRoutes()
-    updateHeatmap()
     updateMarkers()
     onMapErrorRef.current?.(null)
-  }, [drawRoutes, reportMapError, updateHeatmap, updateMarkers])
+  }, [drawRoutes, updateMarkers])
 
   useEffect(() => {
     onStyleReadyRef.current = onStyleReady
@@ -345,11 +322,24 @@ const MapView = ({
 
     const initializeMap = async () => {
       try {
+        console.log('Initializing map...')
         const initialStyle = await resolveStyleForTheme(themeRef.current)
-        if (disposedRef.current || !containerRef.current) return
+        console.log('Style resolved:', initialStyle)
+        if (disposedRef.current || !containerRef.current) {
+          console.log('Map initialization cancelled - disposed or no container')
+          return
+        }
 
+        // Ensure container has dimensions
+        const container = containerRef.current
+        if (container.clientWidth === 0 || container.clientHeight === 0) {
+          console.log('Container has no dimensions, waiting...')
+          await new Promise(resolve => setTimeout(resolve, 100))
+        }
+
+        console.log('Creating map instance...')
         const map = new maplibregl.Map({
-          container: containerRef.current,
+          container: container,
           style: initialStyle,
           center: MUMBAI_CENTER,
           zoom: MUMBAI_ZOOM,
@@ -357,17 +347,23 @@ const MapView = ({
         })
         mapRef.current = map
 
+        console.log('Map created, adding controls...')
         map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-left')
         map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
         map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: 'metric' }), 'bottom-right')
 
         registerRuntimeHandlers(map)
-        map.once('load', () => onStyleReadyRef.current?.())
+        map.once('load', () => {
+          console.log('Map loaded successfully')
+          onStyleReadyRef.current?.()
+        })
         map.on('click', (event) => onMapClickRef.current?.(event.lngLat.lat, event.lngLat.lng))
         map.on('mousemove', () => {
           map.getCanvas().style.cursor = onMapClickRef.current ? 'crosshair' : ''
         })
+        console.log('Map initialization complete')
       } catch (error) {
+        console.error('Map initialization error:', error)
         reportMapError(error, 'Unable to initialize the map.')
       }
     }
@@ -426,10 +422,6 @@ const MapView = ({
   useEffect(() => {
     if (styleReadyRef.current) drawRoutes()
   }, [routes, selectedRouteType, hoveredRouteType, drawRoutes])
-
-  useEffect(() => {
-    if (styleReadyRef.current) updateHeatmap()
-  }, [heatmapPoints, updateHeatmap])
 
   useEffect(() => {
     updateMarkers()

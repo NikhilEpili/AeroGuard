@@ -13,19 +13,19 @@ class PollutionCostCalculator:
     SPEED_KMPH_BY_MODE = {
         "walking": 5.0,
         "cycling": 15.0,
-        "bike": 15.0,
+        "bike": 20.0,  # Electric bike is faster
         "driving": 30.0,
     }
     ACTIVITY_FACTOR_BY_MODE = {
         "walking": 1.6,
         "cycling": 2.0,
-        "bike": 2.0,
+        "bike": 1.8,  # Slightly less exertion for electric bike
         "driving": 1.0,
     }
     EMISSION_FACTOR_BY_MODE = {
         "walking": 0.0,
         "cycling": 0.0,
-        "bike": 0.0,
+        "bike": 0.1,  # Small emission factor for electric bikes
         "driving": 0.5,
     }
 

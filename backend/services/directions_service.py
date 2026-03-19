@@ -221,7 +221,7 @@ class DirectionsService:
         coordinates = ";".join(f"{lon},{lat}" for lat, lon in waypoint_coords)
         url = f"{self.settings.osrm_base_url}/route/v1/{profile}/{coordinates}"
         params = {
-            "alternatives": "true" if alternatives else "false",
+            "alternatives": "3",  # Request up to 3 alternative routes
             "overview": "full",
             "geometries": "geojson",
             "steps": "false",
@@ -456,55 +456,58 @@ class DirectionsService:
 
     def _fallback_candidates(self, origin: tuple[float, float], destination: tuple[float, float]) -> list[dict]:
         distance_km = compute_distance_km(origin[0], origin[1], destination[0], destination[1])
-        base_geometry = [
+
+        # Create more varied routes that go through different pollution areas
+        mid_lat = (origin[0] + destination[0]) / 2.0
+        mid_lon = (origin[1] + destination[1]) / 2.0
+
+        # Route 1: Direct route (fastest)
+        direct_geometry = [
             {"lat": origin[0], "lng": origin[1]},
             {"lat": destination[0], "lng": destination[1]},
         ]
+
+        # Route 2: Detour north (balanced) - go through potentially cleaner areas
+        north_detour_geometry = [
+            {"lat": origin[0], "lng": origin[1]},
+            {"lat": min(origin[0], destination[0]) + abs(origin[0] - destination[0]) * 0.3, "lng": (origin[1] + destination[1]) / 2.0},
+            {"lat": destination[0], "lng": destination[1]},
+        ]
+
+        # Route 3: Detour south (safe) - go through potentially different pollution areas
+        south_detour_geometry = [
+            {"lat": origin[0], "lng": origin[1]},
+            {"lat": max(origin[0], destination[0]) - abs(origin[0] - destination[0]) * 0.3, "lng": (origin[1] + destination[1]) / 2.0},
+            {"lat": destination[0], "lng": destination[1]},
+        ]
+
         return [
             {
                 "route_id": uuid4().hex,
                 "distance_km": round(distance_km, 2),
                 "duration_minutes": round(distance_km * 12, 2),
-                "polyline_coordinates": base_geometry,
-                "geometry": base_geometry,
+                "polyline_coordinates": direct_geometry,
+                "geometry": direct_geometry,
                 "exposure_score": 0.0,
                 "travel_mode": "walking",
                 "strategy": "fallback_fastest",
             },
             {
                 "route_id": uuid4().hex,
-                "distance_km": round(distance_km * 1.05, 2),
-                "duration_minutes": round(distance_km * 13.2, 2),
-                "polyline_coordinates": [
-                    {"lat": origin[0], "lng": origin[1]},
-                    {"lat": (origin[0] + destination[0]) / 2.0, "lng": origin[1]},
-                    {"lat": destination[0], "lng": destination[1]},
-                ],
-                "geometry": [
-                    {"lat": origin[0], "lng": origin[1]},
-                    {"lat": (origin[0] + destination[0]) / 2.0, "lng": origin[1]},
-                    {"lat": destination[0], "lng": destination[1]},
-                ],
+                "distance_km": round(distance_km * 1.15, 2),
+                "duration_minutes": round(distance_km * 13.8, 2),
+                "polyline_coordinates": north_detour_geometry,
+                "geometry": north_detour_geometry,
                 "exposure_score": 0.0,
                 "travel_mode": "walking",
                 "strategy": "fallback_balanced",
             },
             {
                 "route_id": uuid4().hex,
-                "distance_km": round(distance_km * 1.12, 2),
-                "duration_minutes": round(distance_km * 14.1, 2),
-                "polyline_coordinates": [
-                    {"lat": origin[0], "lng": origin[1]},
-                    {"lat": origin[0], "lng": (origin[1] + destination[1]) / 2.0},
-                    {"lat": destination[0], "lng": (origin[1] + destination[1]) / 2.0},
-                    {"lat": destination[0], "lng": destination[1]},
-                ],
-                "geometry": [
-                    {"lat": origin[0], "lng": origin[1]},
-                    {"lat": origin[0], "lng": (origin[1] + destination[1]) / 2.0},
-                    {"lat": destination[0], "lng": (origin[1] + destination[1]) / 2.0},
-                    {"lat": destination[0], "lng": destination[1]},
-                ],
+                "distance_km": round(distance_km * 1.25, 2),
+                "duration_minutes": round(distance_km * 15.0, 2),
+                "polyline_coordinates": south_detour_geometry,
+                "geometry": south_detour_geometry,
                 "exposure_score": 0.0,
                 "travel_mode": "walking",
                 "strategy": "fallback_safe",

@@ -1,6 +1,6 @@
 export const ROUTE_COLORS = {
-  fastest: '#3b82f6',
-  balanced: '#f59e0b',
+  fastest: '#2563eb', // darker blue
+  balanced: '#d97706', // darker yellow
   safe: '#16a34a'
 }
 
