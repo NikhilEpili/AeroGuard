@@ -26,10 +26,11 @@ class EvaluatedRoute:
 
 
 class PollutionModel:
-    OBJECTIVE_WEIGHTS: dict[RouteType, tuple[float, float]] = {
-        "fastest": (0.9, 0.1),
-        "balanced": (0.5, 0.5),
-        "safe": (0.2, 0.8),
+    OBJECTIVE_WEIGHTS: dict[RouteType, tuple[float, float, float]] = {
+        # (pollution, time, distance)
+        "fastest": (0.2, 0.7, 0.1),
+        "balanced": (0.4, 0.4, 0.2),
+        "safe": (0.6, 0.3, 0.1),
     }
 
     def __init__(self) -> None:
@@ -87,42 +88,51 @@ class PollutionModel:
         used_signatures: set[str] = set()
 
         # Sort routes by different criteria for each strategy to ensure diversity
-        for route_type, (alpha, beta) in self.OBJECTIVE_WEIGHTS.items():
+        metrics = self._build_normalized_metrics(evaluated_routes)
+
+        for route_type, (wp, wt, wd) in self.OBJECTIVE_WEIGHTS.items():
             if route_type == "fastest":
-                # For fastest: prioritize speed (low alpha, low beta)
+                # For fastest: prioritize ETA and distance while still considering exposure.
                 ranked = sorted(
                     evaluated_routes,
                     key=lambda route: (
-                        route.duration_minutes,  # Primary: duration
-                        route.distance_km,       # Secondary: distance
-                        route.exposure_score,    # Tertiary: exposure
+                        metrics[route.signature]["time_norm"],
+                        metrics[route.signature]["distance_norm"],
+                        metrics[route.signature]["exposure_norm"],
                     ),
                 )
             elif route_type == "balanced":
-                # For balanced: balance speed and pollution
+                # For balanced: equal focus on exposure and ETA.
                 ranked = sorted(
                     evaluated_routes,
                     key=lambda route: (
-                        self._objective_cost(route, alpha=alpha, beta=beta),
-                        route.duration_minutes,
-                        route.distance_km,
+                        self._objective_cost(route, metrics=metrics, wp=wp, wt=wt, wd=wd),
+                        metrics[route.signature]["time_norm"],
+                        metrics[route.signature]["distance_norm"],
                     ),
                 )
             else:  # safe
-                # For safe: prioritize low pollution
+                # For safe: research-style objective (0.6 pollution, 0.3 time, 0.1 distance).
                 ranked = sorted(
                     evaluated_routes,
                     key=lambda route: (
-                        route.exposure_score,    # Primary: exposure
-                        route.duration_minutes,  # Secondary: duration
-                        route.distance_km,       # Tertiary: distance
+                        self._objective_cost(route, metrics=metrics, wp=wp, wt=wt, wd=wd),
+                        metrics[route.signature]["exposure_norm"],
+                        metrics[route.signature]["time_norm"],
                     ),
                 )
 
             # Try to find an unused route, but allow reuse if necessary
             chosen = next((route for route in ranked if route.signature not in used_signatures), ranked[0])
             used_signatures.add(chosen.signature)
-            selected[route_type] = self._serialize_route(chosen, route_type=route_type, alpha=alpha, beta=beta)
+            selected[route_type] = self._serialize_route(
+                chosen,
+                route_type=route_type,
+                wp=wp,
+                wt=wt,
+                wd=wd,
+                metrics=metrics,
+            )
 
         return selected
 
@@ -180,25 +190,72 @@ class PollutionModel:
             "distance_increase_percent": round(distance_increase_percent, 2),
         }
 
-    def _objective_cost(self, route: EvaluatedRoute, *, alpha: float, beta: float) -> float:
-        return (float(alpha) * route.duration_minutes) + (float(beta) * route.exposure_score)
+    def _objective_cost(
+        self,
+        route: EvaluatedRoute,
+        *,
+        metrics: dict[str, dict[str, float]],
+        wp: float,
+        wt: float,
+        wd: float,
+    ) -> float:
+        norm = metrics[route.signature]
+        return (wp * norm["exposure_norm"]) + (wt * norm["time_norm"]) + (wd * norm["distance_norm"])
 
-    def _serialize_route(self, route: EvaluatedRoute, *, route_type: RouteType, alpha: float, beta: float) -> dict:
+    def _serialize_route(
+        self,
+        route: EvaluatedRoute,
+        *,
+        route_type: RouteType,
+        wp: float,
+        wt: float,
+        wd: float,
+        metrics: dict[str, dict[str, float]],
+    ) -> dict:
+        norm = metrics[route.signature]
         return {
             "route_id": route.route_id,
             "route_type": route_type,
             "strategy": route.strategy,
             "coordinates": route.coordinates,
-            "geometry": route.coordinates,
+            "geometry": route.geometry_points,
             "distance_km": route.distance_km,
             "duration_minutes": route.duration_minutes,
             "exposure_score": route.exposure_score,
             "average_aqi": route.average_aqi,
             "risk_level": route.risk_level,
-            "objective_score": round(self._objective_cost(route, alpha=alpha, beta=beta), 3),
-            "alpha": round(alpha, 2),
-            "beta": round(beta, 2),
+            "objective_score": round(self._objective_cost(route, metrics=metrics, wp=wp, wt=wt, wd=wd), 4),
+            "norm_exposure": round(norm["exposure_norm"], 4),
+            "norm_time": round(norm["time_norm"], 4),
+            "norm_distance": round(norm["distance_norm"], 4),
+            "weight_pollution": round(wp, 2),
+            "weight_time": round(wt, 2),
+            "weight_distance": round(wd, 2),
         }
+
+    def _build_normalized_metrics(self, evaluated_routes: list[EvaluatedRoute]) -> dict[str, dict[str, float]]:
+        exp_values = [float(route.exposure_score) for route in evaluated_routes]
+        time_values = [float(route.duration_minutes) for route in evaluated_routes]
+        dist_values = [float(route.distance_km) for route in evaluated_routes]
+
+        def _minmax(value: float, lo: float, hi: float) -> float:
+            if hi <= lo + 1e-9:
+                return 1.0
+            return (value - lo) / (hi - lo)
+
+        exp_min, exp_max = min(exp_values), max(exp_values)
+        time_min, time_max = min(time_values), max(time_values)
+        dist_min, dist_max = min(dist_values), max(dist_values)
+
+        normalized: dict[str, dict[str, float]] = {}
+        for route in evaluated_routes:
+            normalized[route.signature] = {
+                "exposure_norm": _minmax(float(route.exposure_score), exp_min, exp_max),
+                "time_norm": _minmax(float(route.duration_minutes), time_min, time_max),
+                "distance_norm": _minmax(float(route.distance_km), dist_min, dist_max),
+            }
+
+        return normalized
 
     def _normalize_geometry(self, geometry: list) -> list[dict[str, float]]:
         normalized: list[dict[str, float]] = []

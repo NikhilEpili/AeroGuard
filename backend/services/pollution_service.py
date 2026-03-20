@@ -4,7 +4,7 @@ import math
 from datetime import UTC, datetime, timedelta
 from random import Random
 
-import requests
+import httpx
 
 from backend.core.config import get_settings
 from backend.core.logging import get_logger
@@ -35,6 +35,109 @@ class PollutionService:
         self._rng = Random(42)
         self._grid_cache: dict[str, list[dict[str, float | int]]] = {}
         self._heatmap_cache: dict[str, list[dict[str, float | int | str]]] = {}
+
+    async def _fetch_fused_pollution_points(
+        self,
+        latitude: float,
+        longitude: float,
+        radius_m: int,
+    ) -> list[dict[str, float]]:
+        """Priority stack: AQICN (main) -> OpenAQ (backup) -> simulated grid (fallback)."""
+        aqicn_points = await self._fetch_aqicn_points(latitude, longitude, radius_m)
+        if aqicn_points:
+            return aqicn_points
+
+        openaq_points = await self._fetch_openaq_points(latitude, longitude, radius_m)
+        if openaq_points:
+            return openaq_points
+
+        self.logger.warning("AQICN and OpenAQ unavailable; using simulated pollution fallback")
+        return self._simulate_pollution_points(latitude, longitude)
+
+    async def _fetch_aqicn_points(
+        self,
+        latitude: float,
+        longitude: float,
+        radius_m: int,
+    ) -> list[dict[str, float]]:
+        """Fetch pollution data from AQICN (World Air Quality Index)."""
+        api_key = self.settings.aqicn_api_key
+        if not api_key:
+            return []
+        
+        base_url = self.settings.aqicn_base_url.rstrip("/")
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                url = f"{base_url}/feed/geo:{latitude};{longitude}/?token={api_key}"
+                
+                response = await client.get(url, timeout=8.0)
+                response.raise_for_status()
+                payload = response.json()
+                if payload.get("status") != "ok":
+                    return []
+                points = self._extract_aqicn_points(payload, latitude, longitude, radius_m)
+                return points
+        except httpx.HTTPError as exc:
+            self.logger.warning("AQICN fetch failed: %s", exc)
+            return []
+
+    def _extract_aqicn_points(
+        self,
+        payload: dict,
+        center_lat: float,
+        center_lon: float,
+        radius_m: int,
+    ) -> list[dict[str, float]]:
+        """Extract and standardize pollution data from AQICN response."""
+        points: list[dict[str, float]] = []
+        
+        # AQICN returns single station or list of stations
+        data = payload.get("data")
+        if not data:
+            return points
+        
+        # Handle both single city and multiple cities response
+        if isinstance(data, dict):
+            data = [data]
+        elif isinstance(data, list):
+            pass
+        else:
+            return points
+        
+        for station in data:
+            # Extract coordinates
+            city_obj = station.get("city") or {}
+            lat = station.get("lat") or city_obj.get("lat")
+            lon = station.get("lon") or city_obj.get("lon")
+            
+            if lat is None or lon is None:
+                continue
+            
+            # Check if within radius
+            distance_km = compute_distance_km(center_lat, center_lon, lat, lon)
+            if distance_km * 1000 > radius_m:
+                continue
+            
+            # Extract pollutant values from iaqi
+            iaqi = station.get("iaqi", {})
+            pm25_val = iaqi.get("pm25", {}).get("v")
+            pm10_val = iaqi.get("pm10", {}).get("v")
+            no2_val = iaqi.get("no2", {}).get("v")
+            
+            # If no PM2.5, skip
+            if pm25_val is None:
+                continue
+            
+            points.append({
+                "latitude": float(lat),
+                "longitude": float(lon),
+                "pm25": float(pm25_val),
+                "pm10": float(pm10_val) if pm10_val else float(pm25_val) * 1.6,
+                "no2": float(no2_val) if no2_val else max(10.0, float(pm25_val) * 0.35),
+            })
+        
+        return points
 
     async def score_candidates(self, candidates: list[dict]) -> list[dict]:
         scored_routes: list[dict] = []
@@ -76,7 +179,7 @@ class PollutionService:
             scored_routes.append(candidate)
         return scored_routes
 
-    def build_pollution_grid_snapshot(
+    async def build_pollution_grid_snapshot(
         self,
         start_location: tuple[float, float],
         destination: tuple[float, float],
@@ -92,7 +195,7 @@ class PollutionService:
         if cached_grid is not None:
             return cached_grid
 
-        source_points = self._source_points_for_route(start_location, destination)
+        source_points = await self._source_points_for_route(start_location, destination)
         grid: list[dict[str, float | int]] = []
         for idx, point in enumerate(source_points, start=1):
             pm25 = float(point["pm25"])
@@ -117,7 +220,7 @@ class PollutionService:
         self._grid_cache[cache_key] = grid
         return grid
 
-    def _source_points_for_route(
+    async def _source_points_for_route(
         self,
         start_location: tuple[float, float],
         destination: tuple[float, float],
@@ -136,11 +239,12 @@ class PollutionService:
         )
         radius_m = int(max(self.settings.openaq_radius_m, route_distance_km * 1000 * 0.6))
 
-        openaq_points = self._fetch_openaq_points(mid_lat, mid_lon, radius_m)
-        if openaq_points:
-            self._sample_points.extend(openaq_points)
+        # Use multi-source fused pollution data
+        fused_points = await self._fetch_fused_pollution_points(mid_lat, mid_lon, radius_m)
+        if fused_points:
+            self._sample_points.extend(fused_points)
             self._sample_points = self._sample_points[-500:]
-            return openaq_points
+            return fused_points
 
         return self._sample_points
 
@@ -213,13 +317,19 @@ class PollutionService:
         self._heatmap_cache[cache_key] = heatmap_points
         return heatmap_points
 
-    def _fetch_openaq_points(
+    async def _fetch_openaq_points(
         self,
         latitude: float,
         longitude: float,
         radius_m: int,
     ) -> list[dict[str, float]]:
         base_url = self.settings.openaq_base_url.rstrip("/")
+        api_key = self.settings.openaq_api_key
+        
+        headers = {}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        
         shared_params = {
             "coordinates": f"{latitude},{longitude}",
             "radius": radius_m,
@@ -228,20 +338,19 @@ class PollutionService:
             "order_by": "datetime",
         }
 
-        for path in ("latest", "locations"):
-            url = f"{base_url}/{path}"
-            try:
-                response = requests.get(url, params=shared_params, timeout=8)
-                response.raise_for_status()
-                payload = response.json()
-                points = self._extract_openaq_points(payload)
-                if points:
-                    return points
-            except requests.RequestException as exc:
-                self.logger.warning("OpenAQ fetch failed (%s): %s", path, exc)
-
-        self.logger.warning("OpenAQ unavailable; using simulated pollution fallback")
-        return self._simulate_pollution_points(latitude, longitude)
+        async with httpx.AsyncClient() as client:
+            for path in ("latest", "locations"):
+                url = f"{base_url}/{path}"
+                try:
+                    response = await client.get(url, params=shared_params, headers=headers, timeout=8.0)
+                    response.raise_for_status()
+                    payload = response.json()
+                    points = self._extract_openaq_points(payload)
+                    if points:
+                        return points
+                except httpx.HTTPError as exc:
+                    self.logger.warning("OpenAQ fetch failed (%s): %s", path, exc)
+            return []
 
     def _extract_openaq_points(self, payload: dict) -> list[dict[str, float]]:
         raw_items = payload.get("results") or payload.get("data") or []

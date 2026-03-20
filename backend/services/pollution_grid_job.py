@@ -21,7 +21,7 @@ pollution_service = PollutionService()
 async def update_pollution_grid_once() -> int:
     """Build 100m pollution grid snapshot and store it in Redis."""
     # Refresh source points for the city area first (OpenAQ/simulated fallback).
-    pollution_service._source_points_for_route(  # noqa: SLF001 - controlled internal refresh call
+    await pollution_service._source_points_for_route(  # noqa: SLF001 - controlled internal refresh call
         (settings.city_min_lat, settings.city_min_lon),
         (settings.city_max_lat, settings.city_max_lon),
     )

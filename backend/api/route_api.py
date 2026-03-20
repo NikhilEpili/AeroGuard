@@ -117,21 +117,54 @@ class GraphMultiObjectiveResponse(BaseModel):
 
 @router.post("/safe", response_model=SafeRouteResponse)
 async def get_safe_route(payload: RouteRequest) -> SafeRouteResponse:
-    base_route = directions_service.get_osrm_base_route(
-        start_location=(payload.origin_lat, payload.origin_lng),
-        destination=(payload.destination_lat, payload.destination_lng),
+    pollution_grid_payload = await redis_client.get(POLLUTION_GRID_REDIS_KEY)
+    if pollution_grid_payload:
+        pollution_grid = json.loads(pollution_grid_payload).get("grid", [])
+    else:
+        pollution_grid = await pollution_service.build_pollution_grid_snapshot(
+            start_location=(payload.origin_lat, payload.origin_lng),
+            destination=(payload.destination_lat, payload.destination_lng),
+            use_forecast=False,
+        )
+
+    route_bundle = route_controller.build_route_bundle(
+        start_lat=payload.origin_lat,
+        start_lon=payload.origin_lng,
+        end_lat=payload.destination_lat,
+        end_lon=payload.destination_lng,
         travel_mode=payload.travel_mode,
+        pollution_grid=pollution_grid,
+        use_predicted_pollution=False,
     )
-    candidates = directions_service.get_candidate_routes(
-        start_location=(payload.origin_lat, payload.origin_lng),
-        destination=(payload.destination_lat, payload.destination_lng),
-        travel_mode=payload.travel_mode,
-    )
-    if base_route:
-        candidates = directions_service.merge_unique_routes([base_route, *candidates])
-    scored_routes = await pollution_service.score_candidates(candidates)
-    best_route, alternatives = safe_route_engine.select_best_route(scored_routes)
-    return SafeRouteResponse(best_route=RouteOption(**best_route), alternatives=[RouteOption(**route) for route in alternatives])
+
+    selected = [
+        route_bundle.get("safe_route", {}),
+        route_bundle.get("balanced_route", {}),
+        route_bundle.get("fastest_route", {}),
+    ]
+
+    options: list[RouteOption] = []
+    seen: set[str] = set()
+    for route in selected:
+        route_id = str(route.get("route_id", ""))
+        if not route_id or route_id in seen:
+            continue
+        seen.add(route_id)
+        options.append(
+            RouteOption(
+                route_id=route_id,
+                duration_minutes=float(route.get("duration_minutes", 0.0)),
+                distance_km=float(route.get("distance_km", 0.0)),
+                exposure_score=float(route.get("exposure_score", 0.0)),
+                strategy=str(route.get("route_type", route.get("strategy", "safe"))),
+                geometry=list(route.get("geometry", [])),
+            )
+        )
+
+    if not options:
+        raise ValueError("No candidate routes found")
+
+    return SafeRouteResponse(best_route=options[0], alternatives=options[1:])
 
 
 @router.get("/safe-route", response_model=SafeRouteCachedResponse)
@@ -178,7 +211,7 @@ async def get_safe_route_cached(
         pollution_grid = json.loads(pollution_grid_payload).get("grid", [])
     else:
         # cold-start fallback until background updater seeds Redis
-        pollution_grid = pollution_service.build_pollution_grid_snapshot(
+        pollution_grid = await pollution_service.build_pollution_grid_snapshot(
             start_location=(start_lat, start_lon),
             destination=(end_lat, end_lon),
             use_forecast=use_predicted_pollution,

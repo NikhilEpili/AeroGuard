@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from math import atan2, ceil, cos, radians, sin, sqrt
 
 import numpy as np
@@ -80,44 +81,54 @@ class PollutionCostCalculator:
         if not filtered_grid:
             filtered_grid = pollution_grid
 
-        nearest_aqi = self._nearest_grid_aqi(sampled_points, filtered_grid, chunk_size=chunk_size)
+        idw_aqi = self._idw_grid_aqi(sampled_points, filtered_grid, chunk_size=chunk_size)
 
         distances_km = np.array([p["distance_km"] for p in sampled_points], dtype=np.float64)
-        total_distance_km = float(np.sum(distances_km))
+        if distances_km.size == 0:
+            return {"total_exposure": 0.0, "average_aqi": 0.0, "risk_level": "Low"}
 
-        # Segment exposure simulation:
-        # segment_time = distance / average_speed
-        # breathing_rate = activity_factor
-        # segment_exposure = pm25 * segment_time * breathing_rate
+        # Core line-integral exposure: Σ AQI(x,y) * ds
+        integral_exposure = float(np.sum(idw_aqi * distances_km))
+
+        # Exposure modifiers (physiology + context)
         speed_kmph = self.SPEED_KMPH_BY_MODE.get(str(travel_mode).lower(), 5.0)
         breathing_rate = self.ACTIVITY_FACTOR_BY_MODE.get(str(travel_mode).lower(), 1.0)
+        traffic_factor, road_factor = self._contextual_factors(travel_mode=travel_mode, strategy=strategy)
+        time_of_day_factor = self._time_of_day_factor()
+        wind_factor = self._wind_dispersion_factor(sampled_points)
 
+        # Keep ETA-consistent travel time for telemetry/debug output
         segment_time_hours = np.clip(distances_km / max(float(speed_kmph), 0.1), a_min=0.0, a_max=None)
-
-        if duration_minutes is not None and duration_minutes > 0 and total_distance_km > 0:
-            # Keep provider ETA consistent by scaling segment times to requested duration.
+        if duration_minutes is not None and duration_minutes > 0:
             expected_total_hours = float(duration_minutes) / 60.0
             base_total_hours = float(np.sum(segment_time_hours))
             if base_total_hours > 0:
                 segment_time_hours = segment_time_hours * (expected_total_hours / base_total_hours)
 
-        exposure_values = nearest_aqi * segment_time_hours * float(breathing_rate)
         total_time_hours = float(np.sum(segment_time_hours))
-        average_aqi = float(np.sum(nearest_aqi * segment_time_hours) / total_time_hours) if total_time_hours > 0 else 0.0
+        total_distance_km = float(np.sum(distances_km))
+        average_aqi = float(np.sum(idw_aqi * distances_km) / total_distance_km) if total_distance_km > 0 else 0.0
 
-        traffic_factor, road_factor = self._contextual_factors(travel_mode=travel_mode, strategy=strategy)
-        total_exposure = float(np.sum(exposure_values)) * traffic_factor * road_factor
+        total_exposure = (
+            integral_exposure
+            * float(breathing_rate)
+            * float(traffic_factor)
+            * float(road_factor)
+            * float(time_of_day_factor)
+            * float(wind_factor)
+        )
 
-        # Add emission penalty for polluting transport modes
+        # Small mode emission penalty for polluting transport modes
         emission_factor = self.EMISSION_FACTOR_BY_MODE.get(str(travel_mode).lower(), 0.0)
-        emission_penalty = float(np.sum(nearest_aqi * distances_km)) * emission_factor
-        total_exposure += emission_penalty
+        total_exposure += float(integral_exposure) * float(emission_factor)
 
         return {
             "total_exposure": round(total_exposure, 3),
             "average_aqi": round(average_aqi, 2),
             "traffic_factor": round(traffic_factor, 2),
             "road_factor": round(road_factor, 2),
+            "time_of_day_factor": round(time_of_day_factor, 2),
+            "wind_factor": round(wind_factor, 2),
             "breathing_rate": round(float(breathing_rate), 2),
             "total_time_hours": round(total_time_hours, 3),
             "risk_level": self._risk_level(average_aqi),
@@ -251,7 +262,7 @@ class PollutionCostCalculator:
             reduced.append(geometry[-1])
         return reduced
 
-    def _nearest_grid_aqi(
+    def _idw_grid_aqi(
         self,
         sampled_points: Sequence[dict[str, float]],
         pollution_grid: Sequence[dict[str, float | int]],
@@ -260,7 +271,7 @@ class PollutionCostCalculator:
         grid_lat = np.array([float(cell["center_lat"]) for cell in pollution_grid], dtype=np.float64)
         grid_lon = np.array([float(cell["center_lon"]) for cell in pollution_grid], dtype=np.float64)
         grid_aqi = np.array(
-            [float(cell.get("pollution_score", cell.get("pm25", cell.get("aqi", 0.0)))) for cell in pollution_grid],
+            [self._extract_grid_aqi(cell) for cell in pollution_grid],
             dtype=np.float64,
         )
 
@@ -277,7 +288,8 @@ class PollutionCostCalculator:
         sample_x = sample_lon * lon_scale
         sample_y = sample_lat * lat_scale
 
-        nearest = np.empty(sample_lat.shape[0], dtype=np.float64)
+        interpolated = np.empty(sample_lat.shape[0], dtype=np.float64)
+        k_neighbors = min(8, len(pollution_grid))
 
         for start in range(0, sample_lat.shape[0], chunk_size):
             end = min(start + chunk_size, sample_lat.shape[0])
@@ -285,10 +297,45 @@ class PollutionCostCalculator:
             dx = sample_x[start:end, None] - grid_x[None, :]
             dy = sample_y[start:end, None] - grid_y[None, :]
             distance_sq = (dx * dx) + (dy * dy)
-            nearest_idx = np.argmin(distance_sq, axis=1)
-            nearest[start:end] = grid_aqi[nearest_idx]
+            nearest_idx = np.argpartition(distance_sq, kth=max(k_neighbors - 1, 0), axis=1)[:, :k_neighbors]
 
-        return nearest
+            local_dist_sq = np.take_along_axis(distance_sq, nearest_idx, axis=1)
+            local_aqi = np.take_along_axis(np.broadcast_to(grid_aqi, distance_sq.shape), nearest_idx, axis=1)
+
+            weights = 1.0 / np.maximum(local_dist_sq, 1e-6)
+            weighted_sum = np.sum(weights * local_aqi, axis=1)
+            weight_sum = np.sum(weights, axis=1)
+
+            interpolated[start:end] = np.divide(
+                weighted_sum,
+                np.maximum(weight_sum, 1e-9),
+            )
+
+        return interpolated
+
+    def _extract_grid_aqi(self, cell: dict[str, float | int]) -> float:
+        if "aqi" in cell and cell.get("aqi") is not None:
+            return float(cell.get("aqi", 0.0))
+        if "pollution_score" in cell and cell.get("pollution_score") is not None:
+            return float(cell.get("pollution_score", 0.0))
+        # Fallback when only PM2.5 exists: use PM2.5 value as proxy scale.
+        return float(cell.get("pm25", 0.0))
+
+    def _time_of_day_factor(self) -> float:
+        hour = datetime.now(UTC).hour
+        if 6 <= hour <= 10:
+            return 0.95
+        if 17 <= hour <= 22:
+            return 1.12
+        return 1.0
+
+    def _wind_dispersion_factor(self, sampled_points: Sequence[dict[str, float]]) -> float:
+        if not sampled_points:
+            return 1.0
+        avg_lat = sum(float(p["lat"]) for p in sampled_points) / len(sampled_points)
+        avg_lng = sum(float(p["lng"]) for p in sampled_points) / len(sampled_points)
+        # Lightweight deterministic surrogate in range ~[0.96, 1.06]
+        return 1.01 + (0.05 * sin((avg_lat * 7.0) - (avg_lng * 4.0)))
 
     def _risk_level(self, average_aqi: float) -> str:
         if average_aqi <= 50:

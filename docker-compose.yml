@@ -1,29 +1,3 @@
-# ─────────────────────────────────────────────────────────────────────────────
-# AeroGuard Docker Compose
-#
-# Services
-#   postgres   – PostgreSQL 16 + PostGIS 3.5 (persistent volume, health check)
-#   redis      – Redis 7.4 (persistent volume, health check)
-#   mosquitto  – Eclipse Mosquitto 2.0 MQTT broker (TCP 1883, WS 9001)
-#   osrm-download – one-time Mumbai OSM download
-#   osrm-extract  – one-time graph extraction with car profile
-#   osrm-contract – one-time Contraction Hierarchies preprocessing
-#   osrm       – local OSRM routing server (Contraction Hierarchies algorithm)
-#   api        – FastAPI backend (runs Alembic migrations on startup)
-#   simulator  – IoT sensor simulator (starts after api is healthy)
-#
-# Quick start
-#   cp .env.example .env          # fill in secrets
-#   docker compose up --build
-#
-# For local development with live-reload, add a docker-compose.override.yml:
-#   services:
-#     api:
-#       volumes: [".:/app"]
-#       command: ["uvicorn", "backend.main:app", "--host", "0.0.0.0",
-#                 "--port", "8000", "--reload"]
-# ─────────────────────────────────────────────────────────────────────────────
-
 services:
 
   # ── PostgreSQL + PostGIS ───────────────────────────────────────────────────
@@ -84,7 +58,7 @@ services:
       - "1883:1883"   # standard MQTT
       - "9001:9001"   # MQTT over WebSocket
 
-  # ── OSRM one-time download (Mumbai OSM extract) ──────────────────────────
+  # ── OSRM one-time download (Maharashtra OSM extract) ─────────────────────
   osrm-download:
     image: alpine:3.20
     container_name: aeroguard-osrm-download
@@ -95,35 +69,35 @@ services:
       - |
         set -e
         mkdir -p /data
-        if [ -f /data/mumbai-latest.osrm.hsgr ]; then
+        if [ -f /data/maharashtra-latest.osrm ]; then
           echo "OSRM dataset already fully prepared, skipping download."
           exit 0
         fi
-        if [ -f /data/mumbai-latest.osm.pbf ]; then
+        if [ -f /data/maharashtra-latest.osm.pbf ]; then
           # If previous run stored an HTML/error page, remove it.
-          if head -c 1024 /data/mumbai-latest.osm.pbf | tr -d '\000' | grep -Eiq '<html|<!doctype html|not found'; then
-            rm -f /data/mumbai-latest.osm.pbf
+          if head -c 1024 /data/maharashtra-latest.osm.pbf | tr -d '\000' | grep -Eiq '<html|<!doctype html|not found'; then
+            rm -f /data/maharashtra-latest.osm.pbf
           fi
           # Remove obviously invalid tiny files.
-          if [ -f /data/mumbai-latest.osm.pbf ] && [ "$(wc -c < /data/mumbai-latest.osm.pbf)" -lt 10000000 ]; then
-            rm -f /data/mumbai-latest.osm.pbf
+          if [ -f /data/maharashtra-latest.osm.pbf ] && [ "$(wc -c < /data/maharashtra-latest.osm.pbf)" -lt 10000000 ]; then
+            rm -f /data/maharashtra-latest.osm.pbf
           fi
         fi
-        if [ ! -f /data/mumbai-latest.osm.pbf ]; then
+        if [ ! -f /data/maharashtra-latest.osm.pbf ]; then
           apk add --no-cache wget ca-certificates
-          wget -O /data/mumbai-latest.osm.pbf.tmp https://download.openstreetmap.fr/extracts/asia/india/maharashtra.osm.pbf
+          wget -O /data/maharashtra-latest.osm.pbf.tmp https://download.openstreetmap.fr/extracts/asia/india/maharashtra.osm.pbf
           # Validate download before publish.
-          if head -c 1024 /data/mumbai-latest.osm.pbf.tmp | tr -d '\000' | grep -Eiq '<html|<!doctype html|not found'; then
+          if head -c 1024 /data/maharashtra-latest.osm.pbf.tmp | tr -d '\000' | grep -Eiq '<html|<!doctype html|not found'; then
             echo "Downloaded file is HTML, not OSM PBF" >&2
-            rm -f /data/mumbai-latest.osm.pbf.tmp
+            rm -f /data/maharashtra-latest.osm.pbf.tmp
             exit 1
           fi
-          if [ "$(wc -c < /data/mumbai-latest.osm.pbf.tmp)" -lt 10000000 ]; then
+          if [ "$(wc -c < /data/maharashtra-latest.osm.pbf.tmp)" -lt 10000000 ]; then
             echo "Downloaded file is too small to be a valid regional OSM extract" >&2
-            rm -f /data/mumbai-latest.osm.pbf.tmp
+            rm -f /data/maharashtra-latest.osm.pbf.tmp
             exit 1
           fi
-          mv /data/mumbai-latest.osm.pbf.tmp /data/mumbai-latest.osm.pbf
+          mv /data/maharashtra-latest.osm.pbf.tmp /data/maharashtra-latest.osm.pbf
         fi
     volumes:
       - ./docker/osrm/data:/data
@@ -132,19 +106,11 @@ services:
 
   # ── OSRM extract graph using car profile ──────────────────────────────────
   osrm-extract:
-    image: osrm/osrm-backend:latest
+    image: osrm/osrm-backend
     container_name: aeroguard-osrm-extract
     restart: "no"
-    command:
-      - /bin/sh
-      - -lc
-      - |
-        set -e
-        if [ -f /data/mumbai-latest.osrm ] && [ -f /data/mumbai-latest.osrm.ebg_nodes ]; then
-          echo "OSRM extract artifacts already exist, skipping extraction."
-          exit 0
-        fi
-        osrm-extract -p /opt/car.lua /data/mumbai-latest.osm.pbf
+    command: >
+      osrm-extract -p /opt/car.lua /data/maharashtra-latest.osm.pbf
     volumes:
       - ./docker/osrm/data:/data
     networks:
@@ -153,21 +119,13 @@ services:
       osrm-download:
         condition: service_completed_successfully
 
-  # ── OSRM CH contraction preprocessing ─────────────────────────────────────
-  osrm-contract:
-    image: osrm/osrm-backend:latest
-    container_name: aeroguard-osrm-contract
+  # ── OSRM MLD partition preprocessing ──────────────────────────────────────
+  osrm-partition:
+    image: osrm/osrm-backend
+    container_name: aeroguard-osrm-partition
     restart: "no"
-    command:
-      - /bin/sh
-      - -lc
-      - |
-        set -e
-        if [ -f /data/mumbai-latest.osrm.hsgr ]; then
-          echo "OSRM CH artifacts already exist, skipping contraction."
-          exit 0
-        fi
-        osrm-contract /data/mumbai-latest.osrm
+    command: >
+      osrm-partition /data/maharashtra-latest.osrm
     volumes:
       - ./docker/osrm/data:/data
     networks:
@@ -176,21 +134,37 @@ services:
       osrm-extract:
         condition: service_completed_successfully
 
-  # ── OSRM routing server (CH) ──────────────────────────────────────────────
-  osrm:
-    image: osrm/osrm-backend:latest
-    container_name: aeroguard-osrm
-    restart: unless-stopped
-    command: ["osrm-routed", "--algorithm", "ch", "/data/mumbai-latest.osrm", "--port", "5000"]
+  # ── OSRM MLD customize preprocessing ──────────────────────────────────────
+  osrm-customize:
+    image: osrm/osrm-backend
+    container_name: aeroguard-osrm-customize
+    restart: "no"
+    command: >
+      osrm-customize /data/maharashtra-latest.osrm
     volumes:
       - ./docker/osrm/data:/data
     networks:
       - aeroguard-net
+    depends_on:
+      osrm-partition:
+        condition: service_completed_successfully
+
+  # ── OSRM routing server (MLD) ─────────────────────────────────────────────
+  osrm:
+    image: osrm/osrm-backend
+    container_name: aeroguard-osrm
+    restart: unless-stopped
+    depends_on:
+      osrm-customize:
+        condition: service_completed_successfully
     ports:
       - "5000:5000"
-    depends_on:
-      osrm-contract:
-        condition: service_completed_successfully
+    volumes:
+      - ./docker/osrm/data:/data
+    command: >
+      osrm-routed --algorithm mld /data/maharashtra-latest.osrm
+    networks:
+      - aeroguard-net
 
   # ── FastAPI backend ────────────────────────────────────────────────────────
   api:
@@ -214,9 +188,11 @@ services:
       MQTT_BROKER_PORT:         "1883"
       OPENROUTESERVICE_API_KEY: ${OPENROUTESERVICE_API_KEY:-}
       OPENROUTESERVICE_BASE_URL: ${OPENROUTESERVICE_BASE_URL:-https://api.openrouteservice.org}
+      OPENAQ_API_KEY:           ${OPENAQ_API_KEY:-}
+      AQICN_API_KEY:            ${AQICN_API_KEY:-}
       OSRM_BASE_URL:            ${OSRM_BASE_URL:-http://osrm:5000}
-      ROUTE_WEIGHT_POLLUTION:   ${ROUTE_WEIGHT_POLLUTION:-0.7}
-      ROUTE_WEIGHT_DURATION:    ${ROUTE_WEIGHT_DURATION:-0.2}
+      ROUTE_WEIGHT_POLLUTION:   ${ROUTE_WEIGHT_POLLUTION:-0.6}
+      ROUTE_WEIGHT_DURATION:    ${ROUTE_WEIGHT_DURATION:-0.3}
       ROUTE_WEIGHT_DISTANCE:    ${ROUTE_WEIGHT_DISTANCE:-0.1}
     ports:
       - "8000:8000"

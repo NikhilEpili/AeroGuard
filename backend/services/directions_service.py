@@ -221,7 +221,7 @@ class DirectionsService:
         coordinates = ";".join(f"{lon},{lat}" for lat, lon in waypoint_coords)
         url = f"{self.settings.osrm_base_url}/route/v1/{profile}/{coordinates}"
         params = {
-            "alternatives": "3",  # Request up to 3 alternative routes
+            "alternatives": "true" if alternatives else "false",
             "overview": "full",
             "geometries": "geojson",
             "steps": "false",

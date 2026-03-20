@@ -26,13 +26,18 @@ class Settings(BaseSettings):
     openrouteservice_base_url: str = Field(default="https://api.openrouteservice.org", alias="OPENROUTESERVICE_BASE_URL")
     osrm_base_url: str = Field(default="http://localhost:5000", alias="OSRM_BASE_URL")
 
-    route_weight_pollution: float = Field(default=0.7, alias="ROUTE_WEIGHT_POLLUTION")
-    route_weight_duration: float = Field(default=0.2, alias="ROUTE_WEIGHT_DURATION")
+    route_weight_pollution: float = Field(default=0.6, alias="ROUTE_WEIGHT_POLLUTION")
+    route_weight_duration: float = Field(default=0.3, alias="ROUTE_WEIGHT_DURATION")
     route_weight_distance: float = Field(default=0.1, alias="ROUTE_WEIGHT_DISTANCE")
 
+    # Multi-source pollution data APIs
+    openaq_api_key: str | None = Field(default=None, alias="OPENAQ_API_KEY")
     openaq_base_url: str = Field(default="https://api.openaq.org/v3", alias="OPENAQ_BASE_URL")
     openaq_radius_m: int = Field(default=12000, alias="OPENAQ_RADIUS_M")
     openaq_location_limit: int = Field(default=100, alias="OPENAQ_LOCATION_LIMIT")
+
+    aqicn_api_key: str | None = Field(default=None, alias="AQICN_API_KEY")
+    aqicn_base_url: str = Field(default="https://api.waqi.info", alias="AQICN_BASE_URL")
 
     city_min_lat: float = Field(default=18.88, alias="CITY_MIN_LAT")
     city_min_lon: float = Field(default=72.73, alias="CITY_MIN_LON")
