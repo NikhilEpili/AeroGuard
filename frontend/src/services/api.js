@@ -36,7 +36,8 @@ export const geocodeLocation = async (locationQuery) => {
   }
 
   try {
-    const contextualQuery = `${query}, Mumbai, India`
+    // More specific search for Mumbai with better parameters
+    const contextualQuery = `${query}, Mumbai, Maharashtra, India`
 
     const response = await axios.get(`${GEOCODE_BASE_URL}/search`, {
       params: {
@@ -44,27 +45,28 @@ export const geocodeLocation = async (locationQuery) => {
         format: 'jsonv2',
         addressdetails: 1,
         countrycodes: 'in',
-        limit: 5
+        state: 'Maharashtra',
+        city: 'Mumbai',
+        limit: 10,  // Get more results to choose the best one
+        bounded: 1,
+        viewbox: '72.7767,19.2723,72.9797,19.0467',  // Mumbai bounding box
       },
       headers: { 'Accept-Language': 'en' },
       timeout: 10000
     })
 
     let bestMatch = response.data?.[0]
-    if (!bestMatch) {
-      const fallbackResponse = await axios.get(`${GEOCODE_BASE_URL}/search`, {
-        params: {
-          q: query,
-          format: 'jsonv2',
-          addressdetails: 1,
-          countrycodes: 'in',
-          limit: 5
-        },
-        headers: { 'Accept-Language': 'en' },
-        timeout: 10000
-      })
 
-      bestMatch = fallbackResponse.data?.[0]
+    // Filter results to prioritize Mumbai locations
+    const mumbaiResults = response.data?.filter(result =>
+      result.address?.city === 'Mumbai' ||
+      result.address?.town === 'Mumbai' ||
+      result.address?.state === 'Maharashtra' ||
+      result.display_name.includes('Mumbai')
+    ) || []
+
+    if (mumbaiResults.length > 0) {
+      bestMatch = mumbaiResults[0]
     }
 
     if (!bestMatch) {

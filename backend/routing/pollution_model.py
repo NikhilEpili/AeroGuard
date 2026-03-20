@@ -86,17 +86,40 @@ class PollutionModel:
         selected: dict[RouteType, dict] = {}
         used_signatures: set[str] = set()
 
+        # Sort routes by different criteria for each strategy to ensure diversity
         for route_type, (alpha, beta) in self.OBJECTIVE_WEIGHTS.items():
-            ranked = sorted(
-                evaluated_routes,
-                key=lambda route: (
-                    self._objective_cost(route, alpha=alpha, beta=beta),
-                    route.duration_minutes,
-                    route.exposure_score,
-                    route.distance_km,
-                ),
-            )
+            if route_type == "fastest":
+                # For fastest: prioritize speed (low alpha, low beta)
+                ranked = sorted(
+                    evaluated_routes,
+                    key=lambda route: (
+                        route.duration_minutes,  # Primary: duration
+                        route.distance_km,       # Secondary: distance
+                        route.exposure_score,    # Tertiary: exposure
+                    ),
+                )
+            elif route_type == "balanced":
+                # For balanced: balance speed and pollution
+                ranked = sorted(
+                    evaluated_routes,
+                    key=lambda route: (
+                        self._objective_cost(route, alpha=alpha, beta=beta),
+                        route.duration_minutes,
+                        route.distance_km,
+                    ),
+                )
+            else:  # safe
+                # For safe: prioritize low pollution
+                ranked = sorted(
+                    evaluated_routes,
+                    key=lambda route: (
+                        route.exposure_score,    # Primary: exposure
+                        route.duration_minutes,  # Secondary: duration
+                        route.distance_km,       # Tertiary: distance
+                    ),
+                )
 
+            # Try to find an unused route, but allow reuse if necessary
             chosen = next((route for route in ranked if route.signature not in used_signatures), ranked[0])
             used_signatures.add(chosen.signature)
             selected[route_type] = self._serialize_route(chosen, route_type=route_type, alpha=alpha, beta=beta)
