@@ -11,6 +11,8 @@ from backend.cache.redis_client import get_redis_client
 from backend.core.logging import configure_logging, get_logger
 from backend.services.pollution_grid_job import POLLUTION_GRID_REDIS_KEY
 from backend.services.pollution_grid_job import run_pollution_grid_updater
+from backend.modules.exposure.router import router as exposure_router
+from backend.modules.health.router import router as health_router
 
 
 @asynccontextmanager
@@ -18,9 +20,9 @@ async def lifespan(app: FastAPI):
     configure_logging()
     logger = get_logger(__name__)
     logger.info("Starting AeroGuard backend")
-    updater_task = asyncio.create_task(run_pollution_grid_updater())
+    # updater_task = asyncio.create_task(run_pollution_grid_updater())
     yield
-    updater_task.cancel()
+    # updater_task.cancel()
     try:
         await updater_task
     except asyncio.CancelledError:
@@ -37,14 +39,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -52,6 +47,8 @@ app.add_middleware(
 
 app.include_router(route_router, prefix="/api/v1")
 app.include_router(sensor_router, prefix="/api/v1")
+app.include_router(exposure_router, prefix="/api/v1")
+app.include_router(health_router, prefix="/api/v1")
 
 redis_client = get_redis_client()
 
