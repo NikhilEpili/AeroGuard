@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import {
   MapContainer,
@@ -57,6 +58,24 @@ function PinSelector({ pinMode, onPick }) {
       onPick(pinMode, [event.latlng.lat, event.latlng.lng]);
     },
   });
+  return null;
+}
+
+function RefreshMapSize({ trigger }) {
+  const map = useMap();
+
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      map.invalidateSize({ pan: false, debounceMoveend: true });
+    }, 80);
+    const onResize = () => map.invalidateSize({ pan: false, debounceMoveend: true });
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.clearTimeout(id);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [map, trigger]);
+
   return null;
 }
 
@@ -236,7 +255,7 @@ export default function MapNavigator({ user }) {
   const renderControls = (inMap = false) => (
     <div
       className={inMap
-        ? "bg-white/95 backdrop-blur rounded-2xl shadow-card border border-gray-100 p-4 w-full max-w-4xl"
+        ? "bg-white/95 rounded-2xl shadow-card border border-gray-100 p-4 w-[90%] max-w-[500px]"
         : "bg-white rounded-2xl shadow-card border border-gray-100 p-5"
       }
     >
@@ -256,8 +275,8 @@ export default function MapNavigator({ user }) {
         </h3>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-3 items-end">
-        <div className="xl:col-span-4">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-end">
+        <div className="lg:col-span-3">
           <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
             Start Location
           </label>
@@ -272,7 +291,7 @@ export default function MapNavigator({ user }) {
           </div>
         </div>
 
-        <div className="xl:col-span-4">
+        <div className="lg:col-span-3">
           <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
             Destination
           </label>
@@ -287,7 +306,7 @@ export default function MapNavigator({ user }) {
           </div>
         </div>
 
-        <div className="xl:col-span-2">
+        <div className="lg:col-span-2">
           <button
             onClick={handleSearch}
             disabled={searching}
@@ -306,11 +325,35 @@ export default function MapNavigator({ user }) {
           </button>
         </div>
 
-        <div className="xl:col-span-2 flex items-end gap-2">
+        <div className="lg:col-span-2">
+          <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+            Route Type
+          </label>
+          <select
+            value={selectedRouteType}
+            onChange={(e) => setSelectedRouteType(e.target.value)}
+            className="w-full px-3 py-3 rounded-xl border-2 border-gray-200 focus:border-primary focus:outline-none text-sm transition-colors cursor-pointer bg-white"
+          >
+            {(routeOptions.length > 0
+              ? routeOptions
+              : [{ id: "safe", type: "safe", positions: [] }]
+            ).map((option) => {
+              const exposure = routeOptions.find((candidate) => candidate.type === option.type);
+              const exposureHint = exposure?.positions?.length ? `(${exposure.positions.length} pts)` : "";
+              return (
+                <option key={option.id} value={option.type}>
+                  {routeTypeLabel(option.type)} {exposureHint}
+                </option>
+              );
+            })}
+          </select>
+        </div>
+
+        <div className="lg:col-span-2 flex items-end gap-2">
           <button
             type="button"
             onClick={() => setPinMode("start")}
-            className={`px-3 py-2 rounded-lg text-xs font-semibold border ${
+            className={`flex-1 px-3 py-3 rounded-xl text-xs font-semibold border ${
               pinMode === "start"
                 ? "bg-emerald-50 border-emerald-300 text-emerald-700"
                 : "bg-white border-gray-200 text-gray-600"
@@ -321,7 +364,7 @@ export default function MapNavigator({ user }) {
           <button
             type="button"
             onClick={() => setPinMode("destination")}
-            className={`px-3 py-2 rounded-lg text-xs font-semibold border ${
+            className={`flex-1 px-3 py-3 rounded-xl text-xs font-semibold border ${
               pinMode === "destination"
                 ? "bg-rose-50 border-rose-300 text-rose-700"
                 : "bg-white border-gray-200 text-gray-600"
@@ -332,155 +375,133 @@ export default function MapNavigator({ user }) {
         </div>
       </div>
 
-      <div className="mt-3">
-        <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
-          Route Type
-        </label>
-        <select
-          value={selectedRouteType}
-          onChange={(e) => setSelectedRouteType(e.target.value)}
-          className="w-full px-3 py-2.5 rounded-lg border border-gray-200 focus:border-primary focus:outline-none text-sm transition-colors cursor-pointer"
-        >
-          {(routeOptions.length > 0
-            ? routeOptions
-            : [{ id: "safe", type: "safe", positions: [] }]
-          ).map((option) => {
-            const exposure = routeOptions.find((candidate) => candidate.type === option.type);
-            const exposureHint = exposure?.positions?.length ? `(${exposure.positions.length} pts)` : "";
-            return (
-              <option key={option.id} value={option.type}>
-                {routeTypeLabel(option.type)} {exposureHint}
-              </option>
-            );
-          })}
-        </select>
-      </div>
-
       <p className="mt-3 text-xs text-gray-500">Tip: choose Pin Start or Pin Destination, then click on the map to set exact points.</p>
+    </div>
+  );
+
+  const mapShell = (
+    <div
+      className={isFullscreen ? "w-screen h-screen bg-white" : "bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden"}
+      style={isFullscreen ? { width: "100vw", height: "100vh" } : undefined}
+    >
+      {!isFullscreen && (
+        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
+          <h3 className="font-bold text-gray-900 flex items-center gap-2">
+            <FiMapPin className="text-primary" />
+            Pollution Map Overlay
+          </h3>
+        </div>
+      )}
+
+      <div style={{ height: isFullscreen ? "100vh" : 440, width: isFullscreen ? "100vw" : "100%" }} className="relative">
+        <MapContainer
+          center={mapCenter}
+          zoom={13}
+          style={{ height: "100%", width: "100%" }}
+          scrollWheelZoom
+          preferCanvas
+        >
+          <RefreshMapSize trigger={isFullscreen} />
+          <PinSelector pinMode={pinMode} onPick={handlePinPick} />
+
+          <TileLayer
+            attribution='&copy; OpenStreetMap'
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          />
+
+          {originCoords && (
+            <Marker position={originCoords} icon={startIcon}>
+              <Popup>Start</Popup>
+            </Marker>
+          )}
+
+          {destinationCoords && (
+            <Marker position={destinationCoords} icon={endIcon}>
+              <Popup>Destination</Popup>
+            </Marker>
+          )}
+
+          {route.length > 0 && (
+            <>
+              {routeOptions.length > 0 ? (
+                routeOptions.map((option) => {
+                  const isSafe = option.type === "safe";
+                  const isBalanced = option.type === "balanced";
+                  const isSelected = option.type === selectedRouteType;
+                  return (
+                    <Polyline
+                      key={option.id}
+                      positions={option.positions}
+                      pathOptions={{
+                        color: isSafe ? "#10B981" : isBalanced ? "#F59E0B" : "#6366F1",
+                        weight: isSelected ? 6 : isSafe ? 5 : 4,
+                        opacity: isSelected ? 0.98 : isSafe ? 0.85 : 0.55,
+                        dashArray: option.type === "fastest" ? "6 6" : undefined,
+                      }}
+                    />
+                  );
+                })
+              ) : (
+                <Polyline positions={route} pathOptions={{ color: "#10B981", weight: 5 }} />
+              )}
+              <FitBounds route={route} />
+            </>
+          )}
+
+          {hotspots.map((spot, i) => (
+            <Circle
+              key={i}
+              center={spot.center}
+              radius={spot.radius}
+              pathOptions={{
+                color: LEVEL_COLORS[spot.level].color,
+                fillColor: LEVEL_COLORS[spot.level].fill,
+                fillOpacity: LEVEL_COLORS[spot.level].opacity,
+                weight: 1,
+                opacity: 0.5,
+              }}
+            >
+              <Popup>
+                <div className="text-sm">
+                  <p className="font-bold">{spot.area}</p>
+                  <p className="text-gray-500">PM2.5: {spot.pm25} μg/m³</p>
+                </div>
+              </Popup>
+            </Circle>
+          ))}
+        </MapContainer>
+
+        <div className="absolute top-5 right-5 z-[10000]">
+          <button
+            type="button"
+            onClick={() => setIsFullscreen((prev) => !prev)}
+            className="bg-white/95 border border-gray-200 rounded-lg px-3 py-2 text-xs font-semibold text-gray-700 shadow-card hover:bg-white transition-colors flex items-center gap-2"
+          >
+            {isFullscreen ? <FiMinimize2 className="w-4 h-4" /> : <FiMaximize2 className="w-4 h-4" />}
+            {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+          </button>
+        </div>
+
+        {isFullscreen && (
+          <div className="fixed top-5 left-5 z-[10000]">
+            {renderControls(true)}
+          </div>
+        )}
+      </div>
     </div>
   );
 
   return (
     <div className="space-y-5">
-
-      {/* Search Panel */}
       {!isFullscreen && renderControls(false)}
-
-      {/* MAP */}
-
-      <div className={isFullscreen
-        ? "fixed inset-0 z-[120] bg-black/20 p-3"
-        : "bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden"
-      }>
-
-        {!isFullscreen && (
-          <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
-            <h3 className="font-bold text-gray-900 flex items-center gap-2">
-              <FiMapPin className="text-primary" />
-              Pollution Map Overlay
-            </h3>
-          </div>
+      {!isFullscreen && mapShell}
+      {isFullscreen &&
+        createPortal(
+          <div className="fixed inset-0 z-[9999] bg-white">
+            {mapShell}
+          </div>,
+          document.body
         )}
-
-        <div style={{ height: isFullscreen ? "100%" : 440 }} className="relative">
-
-          <MapContainer
-            center={mapCenter}
-            zoom={13}
-            style={{ height: "100%", width: "100%" }}
-            scrollWheelZoom={false}
-          >
-            <PinSelector pinMode={pinMode} onPick={handlePinPick} />
-
-            <TileLayer
-              attribution='&copy; OpenStreetMap'
-              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-            />
-
-            {originCoords && (
-              <Marker position={originCoords} icon={startIcon}>
-                <Popup>Start</Popup>
-              </Marker>
-            )}
-
-            {destinationCoords && (
-              <Marker position={destinationCoords} icon={endIcon}>
-                <Popup>Destination</Popup>
-              </Marker>
-            )}
-
-            {route.length > 0 && (
-              <>
-                {routeOptions.length > 0 ? (
-                  routeOptions.map((option) => {
-                    const isSafe = option.type === "safe";
-                    const isBalanced = option.type === "balanced";
-                    const isSelected = option.type === selectedRouteType;
-                    return (
-                      <Polyline
-                        key={option.id}
-                        positions={option.positions}
-                        pathOptions={{
-                          color: isSafe ? "#10B981" : isBalanced ? "#F59E0B" : "#6366F1",
-                          weight: isSelected ? 6 : isSafe ? 5 : 4,
-                          opacity: isSelected ? 0.98 : isSafe ? 0.85 : 0.55,
-                          dashArray: option.type === "fastest" ? "6 6" : undefined,
-                        }}
-                      />
-                    );
-                  })
-                ) : (
-                  <Polyline positions={route} pathOptions={{ color: "#10B981", weight: 5 }} />
-                )}
-                <FitBounds route={route} />
-              </>
-            )}
-
-            {hotspots.map((spot, i) => (
-              <Circle
-                key={i}
-                center={spot.center}
-                radius={spot.radius}
-                pathOptions={{
-                  color: LEVEL_COLORS[spot.level].color,
-                  fillColor: LEVEL_COLORS[spot.level].fill,
-                  fillOpacity: LEVEL_COLORS[spot.level].opacity,
-                  weight: 1,
-                  opacity: 0.5,
-                }}
-              >
-                <Popup>
-                  <div className="text-sm">
-                    <p className="font-bold">{spot.area}</p>
-                    <p className="text-gray-500">
-                      PM2.5: {spot.pm25} μg/m³
-                    </p>
-                  </div>
-                </Popup>
-              </Circle>
-            ))}
-
-          </MapContainer>
-
-          <div className="absolute top-3 right-3 z-[1000]">
-            <button
-              type="button"
-              onClick={() => setIsFullscreen((prev) => !prev)}
-              className="bg-white/95 backdrop-blur border border-gray-200 rounded-lg px-3 py-2 text-xs font-semibold text-gray-700 shadow-card hover:bg-white transition-colors flex items-center gap-2"
-            >
-              {isFullscreen ? <FiMinimize2 className="w-4 h-4" /> : <FiMaximize2 className="w-4 h-4" />}
-              {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
-            </button>
-          </div>
-
-          {isFullscreen && (
-            <div className="absolute top-3 left-3 z-[1000] right-20 max-w-4xl">
-              {renderControls(true)}
-            </div>
-          )}
-
-        </div>
-      </div>
     </div>
   );
 }
