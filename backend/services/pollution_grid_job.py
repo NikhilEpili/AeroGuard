@@ -26,7 +26,8 @@ async def update_pollution_grid_once() -> int:
         (settings.city_max_lat, settings.city_max_lon),
     )
 
-    points = pollution_service.get_pollution_heatmap(
+    points = await asyncio.to_thread(
+        pollution_service.get_pollution_heatmap,
         min_lat=settings.city_min_lat,
         min_lon=settings.city_min_lon,
         max_lat=settings.city_max_lat,

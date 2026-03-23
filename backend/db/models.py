@@ -89,3 +89,7 @@ class RoadSegment(Base):
     landmark_distances: Mapped[dict[str, float] | None] = mapped_column(JSONB, nullable=True)
     segment_geom: Mapped[object] = mapped_column(Geometry(geometry_type="LINESTRING", srid=4326, spatial_index=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+# Import module models for Alembic discovery
+from backend.modules.exposure.models import UserHealthProfile, UserLocationLog, DailyExposureSummary # noqa: F401

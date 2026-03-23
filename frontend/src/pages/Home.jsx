@@ -1,0 +1,362 @@
+import React, { useState } from 'react'
+import RouteForm from '../components/RouteForm'
+import MapView from '../components/MapView'
+import { fetchSafeRoute, geocodeLocation, reverseGeocode } from '../services/api'
+import { buildRouteOptions, defaultSelectedRouteType } from '../services/routeService'
+
+class MapErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props)
+    this.state = { hasError: false }
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true }
+  }
+
+  componentDidCatch(error) {
+    this.props.onError?.(error?.message || 'Map failed to render.')
+  }
+
+  componentDidUpdate(prevProps) {
+    if (prevProps.resetKey !== this.props.resetKey && this.state.hasError) {
+      this.setState({ hasError: false })
+    }
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="map-fallback" role="alert">
+          <h3>Map unavailable</h3>
+          <p>We hit a rendering issue, but your route details are still available in the sidebar.</p>
+        </div>
+      )
+    }
+
+    return this.props.children
+  }
+}
+
+const ROUTE_META = {
+  safe: { title: 'Safest Route', tone: 'safe' },
+  balanced: { title: 'Balanced Route', tone: 'balanced' },
+  fastest: { title: 'Fastest Route', tone: 'fastest' }
+}
+
+const toFiniteNumber = (value, fallback = 0) => {
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? numeric : fallback
+}
+
+const formatMetric = (value, digits = 0, suffix = '') => {
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? `${numeric.toFixed(digits)}${suffix}` : 'N/A'
+}
+
+function Home() {
+  const [route, setRoute] = useState(null)
+  const [routes, setRoutes] = useState([])
+  const [safestIndex, setSafestIndex] = useState(null)
+  const [mapTheme, setMapTheme] = useState('light')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
+  const [mapError, setMapError] = useState(null)
+  const [selectedRouteType, setSelectedRouteType] = useState('safe')
+  const [hoveredRouteType, setHoveredRouteType] = useState(null)
+  const [resolvedPlaces, setResolvedPlaces] = useState(null)
+  const [pinMarkers, setPinMarkers] = useState({ start: null, end: null })
+  const [formKey, setFormKey] = useState(0)
+
+  const [nextClickSets, setNextClickSets] = useState('start')
+  const [startDisplayValue, setStartDisplayValue] = useState(null)
+  const [endDisplayValue, setEndDisplayValue]     = useState(null)
+  const [travelMode, setTravelMode] = useState('walking')
+  const prevTravelModeRef = React.useRef('walking')
+
+  const refetchRoutes = React.useCallback(async (mode = travelMode) => {
+    if (!pinMarkers.start || !pinMarkers.end) return
+
+    setLoading(true)
+    setError(null)
+    setMapError(null)
+
+    try {
+      const startPoint = pinMarkers.start
+      const endPoint = pinMarkers.end
+
+      const data = await fetchSafeRoute(
+        startPoint.lat,
+        startPoint.lon,
+        endPoint.lat,
+        endPoint.lon,
+        mode
+      )
+      const candidates = buildRouteOptions(data)
+
+      setResolvedPlaces({
+        start: startPoint.displayName,
+        destination: endPoint.displayName
+      })
+      setRoute(data)
+      setRoutes(candidates)
+      setSelectedRouteType(defaultSelectedRouteType(candidates))
+      setHoveredRouteType(null)
+      setSafestIndex(candidates.findIndex((item) => item.route_type === 'safe'))
+      setFormKey(prev => prev + 1)
+    } catch (err) {
+      setError(
+        err.response?.data?.detail ||
+        err.message ||
+        'Failed to find route for the provided locations'
+      )
+      setResolvedPlaces(null)
+      setRoute(null)
+      setRoutes([])
+      setSafestIndex(null)
+      setSelectedRouteType('safe')
+      setHoveredRouteType(null)
+    } finally {
+      setLoading(false)
+    }
+  }, [pinMarkers.start, pinMarkers.end, travelMode])
+
+  React.useEffect(() => {
+    if (pinMarkers.start && pinMarkers.end && routes.length > 0 && prevTravelModeRef.current !== travelMode) {
+      refetchRoutes(travelMode)
+      prevTravelModeRef.current = travelMode
+    }
+  }, [travelMode, pinMarkers.start, pinMarkers.end, routes.length, refetchRoutes])
+
+  const handlePlaceSelect = React.useCallback((type, place) => {
+    setPinMarkers((prev) => ({ ...prev, [type]: place }))
+    setNextClickSets(type === 'start' ? 'end' : 'start')
+  }, [])
+
+  const handleMapClick = React.useCallback(async (lat, lon) => {
+    const role = nextClickSets
+    const coords = { lat, lon, displayName: `${lat.toFixed(5)}, ${lon.toFixed(5)}` }
+
+    setPinMarkers((prev) => ({ ...prev, [role]: coords }))
+    setNextClickSets(role === 'start' ? 'end' : 'start')
+
+    try {
+      const resolved = await reverseGeocode(lat, lon)
+      setPinMarkers((prev) => ({ ...prev, [role]: { ...coords, displayName: resolved.displayName } }))
+      if (role === 'start') setStartDisplayValue(resolved.displayName)
+      else                  setEndDisplayValue(resolved.displayName)
+    } catch {
+      setPinMarkers((prev) => ({ ...prev, [role]: coords }))
+      if (role === 'start') setStartDisplayValue(`${lat.toFixed(5)}, ${lon.toFixed(5)}`)
+      else                  setEndDisplayValue(`${lat.toFixed(5)}, ${lon.toFixed(5)}`)
+    }
+  }, [nextClickSets])
+
+  const handleFindRoute = async ({ startPlace, endPlace, travelMode: formTravelMode }) => {
+    setLoading(true)
+    setError(null)
+    setMapError(null)
+
+    try {
+      const startMarker = pinMarkers.start
+      const endMarker = pinMarkers.end
+
+      const [startPoint, endPoint] = await Promise.all([
+        startMarker && startMarker.lat != null
+          ? Promise.resolve({ lat: startMarker.lat, lon: startMarker.lon, displayName: startMarker.displayName })
+          : startPlace.lat != null
+          ? Promise.resolve({ lat: startPlace.lat, lon: startPlace.lon, displayName: startPlace.displayName })
+          : geocodeLocation(startPlace.displayName),
+        endMarker && endMarker.lat != null
+          ? Promise.resolve({ lat: endMarker.lat, lon: endMarker.lon, displayName: endMarker.displayName })
+          : endPlace.lat != null
+          ? Promise.resolve({ lat: endPlace.lat, lon: endPlace.lon, displayName: endPlace.displayName })
+          : geocodeLocation(endPlace.displayName)
+      ])
+
+      setPinMarkers({ start: startPoint, end: endPoint })
+      await refetchRoutes(formTravelMode)
+    } catch (err) {
+      setError(
+        err.response?.data?.detail ||
+        err.message ||
+        'Failed to find route for the provided locations'
+      )
+      setResolvedPlaces(null)
+      setRoute(null)
+      setRoutes([])
+      setSafestIndex(null)
+      setSelectedRouteType('safe')
+      setHoveredRouteType(null)
+      setLoading(false)
+    }
+  }
+
+  const routeByType = Object.fromEntries(routes.map((routeItem) => [routeItem.route_type, routeItem]))
+
+  return (
+    <div className="home-content">
+      <aside className="sidebar">
+        <div className="sidebar-header">
+          <h1>Route Navigator</h1>
+          <p>Find the cleanest path to your destination</p>
+        </div>
+
+        <section className="map-theme-toggle" aria-label="Map style toggle">
+          <span>Map Style</span>
+          <div className="map-theme-buttons">
+            <button
+              type="button"
+              className={mapTheme === 'light' ? 'active' : ''}
+              onClick={() => setMapTheme('light')}
+            >
+              Light
+            </button>
+            <button
+              type="button"
+              className={mapTheme === 'dark' ? 'active' : ''}
+              onClick={() => setMapTheme('dark')}
+            >
+              Dark
+            </button>
+          </div>
+        </section>
+
+        <RouteForm
+          key={formKey}
+          onSubmit={handleFindRoute}
+          loading={loading}
+          onPlaceSelect={handlePlaceSelect}
+          startDisplayValue={startDisplayValue}
+          endDisplayValue={endDisplayValue}
+          travelMode={travelMode}
+          onTravelModeChange={setTravelMode}
+        />
+
+        {resolvedPlaces && (
+          <section className="trip-summary">
+            <h3>Trip</h3>
+            <p><strong>Start:</strong> {resolvedPlaces.start}</p>
+            <p><strong>Destination:</strong> {resolvedPlaces.destination}</p>
+            <p className="trip-arrow">{resolvedPlaces.start} → {resolvedPlaces.destination}</p>
+          </section>
+        )}
+
+        <section className="route-legend" aria-label="Route color legend">
+          <h3>Route Colors</h3>
+          <ul>
+            <li><span className="legend-dot legend-fastest" /> Fastest (Blue)</li>
+            <li><span className="legend-dot legend-safe" /> Safest (Green)</li>
+            <li><span className="legend-dot legend-balanced" /> Balanced (Orange)</li>
+          </ul>
+        </section>
+
+        {route && (
+          <section className="route-cards-section">
+            <h3>Route Options</h3>
+            <div className="route-cards">
+              {['safe', 'balanced', 'fastest'].map((key) => {
+                const option = routeByType[key]
+
+                if (!option) return null
+
+                const fastestExposure = toFiniteNumber(route.fastest_route?.exposure_score || route.fastest_route_exposure, 0)
+                const currentExposure = toFiniteNumber(option.exposure_score, 0)
+                const savedPct = fastestExposure > 0
+                  ? Math.max(0, ((fastestExposure - currentExposure) / fastestExposure) * 100)
+                  : 0
+
+                return (
+                  <article
+                    key={key}
+                    className={`route-card route-card-${ROUTE_META[key].tone}${selectedRouteType === key ? ' route-card-selected' : ''}`}
+                    onMouseEnter={() => setHoveredRouteType(key)}
+                    onMouseLeave={() => setHoveredRouteType(null)}
+                    onClick={() => setSelectedRouteType(key)}
+                  >
+                    <header>
+                      <h4>{ROUTE_META[key].title}</h4>
+                      <span className={`risk-pill risk-${String(option.risk_level || '').toLowerCase()}`}>
+                        {option.risk_level || 'N/A'}
+                      </span>
+                    </header>
+
+                    <div className="route-card-grid">
+                      <div>
+                        <label>Distance</label>
+                        <strong>{formatMetric(option.distance_km, 1, ' km')}</strong>
+                      </div>
+                      <div>
+                        <label>Time</label>
+                        <strong>{formatMetric(option.duration_minutes, 0, ' min')}</strong>
+                      </div>
+                      <div>
+                        <label>Exposure</label>
+                        <strong>{formatMetric(option.exposure_score, 0, ' PM2.5')}</strong>
+                      </div>
+                      <div>
+                        <label>AQI</label>
+                        <strong>{formatMetric(option.average_aqi, 0)}</strong>
+                      </div>
+                      <div>
+                        <label>Pollution Saved</label>
+                        <strong>{savedPct.toFixed(0)}%</strong>
+                      </div>
+                    </div>
+
+                    {key === 'safe' && (
+                      <div className="saved-badge">
+                        Saved {formatMetric(route.pollution_saved_percent, 0, '%')}
+                      </div>
+                    )}
+                  </article>
+                )
+              })}
+            </div>
+
+            <div className="health-impact">
+              <p>✔ You avoided <strong>{formatMetric(route.pollution_saved_percent, 0, '%')}</strong> pollution</p>
+              <p>✔ Equivalent to avoiding <strong>{formatMetric(route.equivalent_cigarettes_avoided, 1)}</strong> cigarettes</p>
+            </div>
+          </section>
+        )}
+
+        {error && (
+          <section className="error-box">
+            <strong>Error:</strong>
+            <p>{error}</p>
+          </section>
+        )}
+
+        {mapError && !error && (
+          <section className="error-box error-box-warning">
+            <strong>Map warning:</strong>
+            <p>{mapError}</p>
+          </section>
+        )}
+      </aside>
+
+      <main className="map-wrapper">
+        {!loading && (
+          <div className={`map-click-hint hint-${nextClickSets}`} aria-live="polite">
+            📍 Click map to set <strong>{nextClickSets === 'start' ? 'Start' : 'Destination'}</strong>
+          </div>
+        )}
+        <MapErrorBoundary resetKey={`${mapTheme}:${routes.length}:${pinMarkers.start?.lat || 0}:${pinMarkers.end?.lat || 0}`} onError={setMapError}>
+          <MapView
+            routes={routes}
+            safestIndex={safestIndex}
+            mapTheme={mapTheme}
+            pinMarkers={pinMarkers}
+            onMapClick={handleMapClick}
+            onMapError={setMapError}
+            selectedRouteType={selectedRouteType}
+            hoveredRouteType={hoveredRouteType}
+          />
+        </MapErrorBoundary>
+      </main>
+    </div>
+  )
+}
+
+export default Home;
