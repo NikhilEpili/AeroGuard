@@ -150,19 +150,21 @@ class PollutionModel:
         safe_exposure = float(safe["exposure_score"])
         fastest_distance = float(fastest["distance_km"])
         safe_distance = float(safe["distance_km"])
+        worst_exposure = max(
+            float(fastest.get("exposure_score", 0.0)),
+            float(balanced.get("exposure_score", 0.0)),
+            float(safe.get("exposure_score", 0.0)),
+        )
 
-        pollution_saved_percent = ((fastest_exposure - safe_exposure) / fastest_exposure * 100.0) if fastest_exposure > 0 else 0.0
-        avoided_exposure = max(0.0, fastest_exposure - safe_exposure)
+        pollution_saved_percent = ((worst_exposure - safe_exposure) / worst_exposure * 100.0) if worst_exposure > 0 else 0.0
+        avoided_exposure = max(0.0, worst_exposure - safe_exposure)
         distance_increase_percent = ((safe_distance - fastest_distance) / fastest_distance * 100.0) if fastest_distance > 0 else 0.0
 
         for route in (fastest, balanced, safe):
             route["pollution_saved_percent"] = round(
-                ((fastest_exposure - float(route["exposure_score"])) / fastest_exposure * 100.0) if fastest_exposure > 0 else 0.0,
+                ((worst_exposure - float(route["exposure_score"])) / worst_exposure * 100.0) if worst_exposure > 0 else 0.0,
                 2,
             )
-
-        print("Fastest route length:", len(fastest["coordinates"]))
-        print("Safe route length:", len(safe["coordinates"]))
 
         return {
             "route": safe,

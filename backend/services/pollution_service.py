@@ -195,26 +195,53 @@ class PollutionService:
         if cached_grid is not None:
             return cached_grid
 
-        source_points = await self._source_points_for_route(start_location, destination)
-        grid: list[dict[str, float | int]] = []
-        for idx, point in enumerate(source_points, start=1):
-            pm25 = float(point["pm25"])
-            if use_forecast:
-                pm25 = self.predict_pm25_next_30_minutes(
-                    latitude=float(point["latitude"]),
-                    longitude=float(point["longitude"]),
-                    base_pm25=pm25,
-                )
+        # Refresh source points first (AQICN/OpenAQ/simulated fallback).
+        await self._source_points_for_route(start_location, destination)
 
-            grid.append(
-                {
-                    "grid_id": idx,
-                    "center_lat": float(point["latitude"]),
-                    "center_lon": float(point["longitude"]),
-                    "pm25": pm25,
-                    "aqi": self.pm25_to_aqi(pm25),
-                }
-            )
+        start_lat, start_lon = start_location
+        end_lat, end_lon = destination
+        route_distance_km = compute_distance_km(start_lat, start_lon, end_lat, end_lon)
+
+        # Local bbox around the O-D corridor with distance-aware padding.
+        padding_deg = min(max((route_distance_km / 111.0) * 0.5, 0.01), 0.08)
+        min_lat = min(start_lat, end_lat) - padding_deg
+        max_lat = max(start_lat, end_lat) + padding_deg
+        min_lon = min(start_lon, end_lon) - padding_deg
+        max_lon = max(start_lon, end_lon) + padding_deg
+
+        heatmap_points = self.get_pollution_heatmap(
+            min_lat=min_lat,
+            min_lon=min_lon,
+            max_lat=max_lat,
+            max_lon=max_lon,
+            grid_size_m=max(int(self.settings.pollution_grid_cell_size_m), 100),
+            use_forecast=use_forecast,
+        )
+
+        grid: list[dict[str, float | int]] = [
+            {
+                "grid_id": idx,
+                "center_lat": float(point.get("lat", 0.0)),
+                "center_lon": float(point.get("lon", 0.0)),
+                "pm25": float(point.get("pm25", 0.0)),
+                "aqi": int(point.get("aqi", 0)),
+            }
+            for idx, point in enumerate(heatmap_points, start=1)
+        ]
+
+        if not grid:
+            # Safety fallback if local bbox generation fails for any reason.
+            for idx, point in enumerate(self._sample_points, start=1):
+                pm25 = float(point["pm25"])
+                grid.append(
+                    {
+                        "grid_id": idx,
+                        "center_lat": float(point["latitude"]),
+                        "center_lon": float(point["longitude"]),
+                        "pm25": pm25,
+                        "aqi": self.pm25_to_aqi(pm25),
+                    }
+                )
 
         self._grid_cache = {k: v for k, v in self._grid_cache.items() if k.endswith(f":{time_bucket}")}
         self._grid_cache[cache_key] = grid
