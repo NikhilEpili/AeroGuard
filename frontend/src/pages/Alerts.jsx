@@ -1,6 +1,6 @@
 import AlertsPanel from "../components/AlertsPanel";
 
-export default function Alerts() {
+export default function Alerts({ user }) {
   return (
     <div>
       <div className="mb-6">
@@ -11,7 +11,7 @@ export default function Alerts() {
           Real-time pollution spikes and health risk warnings
         </p>
       </div>
-      <AlertsPanel />
+      <AlertsPanel user={user} />
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import {
   RadialBarChart,
@@ -5,8 +6,9 @@ import {
   ResponsiveContainer,
   Tooltip,
 } from "recharts";
+import { getSimulatedSensorsBatch } from "../services/aeroguardApi";
 
-const POLLUTANTS = [
+const DEFAULT_POLLUTANTS = [
   {
     name: "PM2.5",
     value: 34,
@@ -141,6 +143,60 @@ const GaugeChart = ({ pollutant }) => {
 };
 
 export default function PollutionStats({ full }) {
+  const [pollutants, setPollutants] = useState(DEFAULT_POLLUTANTS);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        const sensors = await getSimulatedSensorsBatch();
+        if (!Array.isArray(sensors) || sensors.length === 0 || cancelled) return;
+
+        const avgPm25 = sensors.reduce((sum, s) => sum + Number(s.pm25 || 0), 0) / sensors.length;
+        const avgPm10 = sensors.reduce((sum, s) => sum + Number(s.pm10 || 0), 0) / sensors.length;
+        const avgNo2 = sensors.reduce((sum, s) => sum + Number(s.no2 || 0), 0) / sensors.length;
+        const avgCo = Math.max(0.2, avgPm25 / 20);
+
+        const next = [
+          {
+            ...DEFAULT_POLLUTANTS[0],
+            value: Number(avgPm25.toFixed(1)),
+            status: avgPm25 > 55 ? "Unhealthy" : avgPm25 > 35 ? "Moderate" : "Good",
+            statusColor: avgPm25 > 55 ? "#EF4444" : avgPm25 > 35 ? "#F59E0B" : "#10B981",
+          },
+          {
+            ...DEFAULT_POLLUTANTS[1],
+            value: Number(avgPm10.toFixed(1)),
+            status: avgPm10 > 100 ? "Unhealthy" : avgPm10 > 50 ? "Moderate" : "Good",
+            statusColor: avgPm10 > 100 ? "#EF4444" : avgPm10 > 50 ? "#F59E0B" : "#10B981",
+          },
+          {
+            ...DEFAULT_POLLUTANTS[2],
+            value: Number(avgNo2.toFixed(1)),
+            status: avgNo2 > 80 ? "Unhealthy" : avgNo2 > 40 ? "Moderate" : "Good",
+            statusColor: avgNo2 > 80 ? "#EF4444" : avgNo2 > 40 ? "#F59E0B" : "#10B981",
+          },
+          {
+            ...DEFAULT_POLLUTANTS[3],
+            value: Number(avgCo.toFixed(1)),
+            status: avgCo > 10 ? "Unhealthy" : avgCo > 5 ? "Moderate" : "Good",
+            statusColor: avgCo > 10 ? "#EF4444" : avgCo > 5 ? "#F59E0B" : "#10B981",
+          },
+        ];
+
+        setPollutants(next);
+      } catch (error) {
+        console.warn("Failed to load pollutant stats", error);
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
@@ -156,7 +212,7 @@ export default function PollutionStats({ full }) {
         </div>
       </div>
       <div className={`grid gap-4 ${full ? "grid-cols-2 lg:grid-cols-4" : "grid-cols-2"}`}>
-        {POLLUTANTS.map((p) => (
+        {pollutants.map((p) => (
           <GaugeChart key={p.name} pollutant={p} />
         ))}
       </div>

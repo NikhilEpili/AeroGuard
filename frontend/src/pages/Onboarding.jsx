@@ -13,6 +13,9 @@ import {
   FiWind,
   FiShield,
 } from "react-icons/fi";
+import { geocodeLocation } from "../services/geocoding";
+import { createOrUpdateHealthProfile } from "../services/aeroguardApi";
+import { conditionFlags, resolveUserId } from "../services/userProfile";
 
 const STEPS = ["Personal Info", "Health & Commute", "Ready"];
 
@@ -24,6 +27,7 @@ const labelClass =
 export default function Onboarding() {
   const navigate = useNavigate();
   const [step, setStep] = useState(0);
+  const [submitting, setSubmitting] = useState(false);
   const [errors, setErrors] = useState({});
   const [form, setForm] = useState({
     name: "",
@@ -53,14 +57,35 @@ export default function Onboarding() {
     return Object.keys(errs).length === 0;
   };
 
-  const next = () => {
+  const next = async () => {
     if (!validate()) return;
     if (step < 2) setStep((s) => s + 1);
     else {
+      setSubmitting(true);
+      const backendUserId = resolveUserId(form);
+      const coords = await geocodeLocation(form.location);
+
+      try {
+        await createOrUpdateHealthProfile({
+          user_id: backendUserId,
+          age: Number(form.age),
+          commute_type: form.commute,
+          ...conditionFlags(form.conditions),
+        });
+      } catch (error) {
+        console.warn("Profile sync with backend failed", error);
+      }
+
       localStorage.setItem(
         "aeroguard_user",
-        JSON.stringify({ ...form, joinedAt: new Date().toISOString() })
+        JSON.stringify({
+          ...form,
+          backendUserId,
+          coords,
+          joinedAt: new Date().toISOString(),
+        })
       );
+      setSubmitting(false);
       navigate("/dashboard");
     }
   };
@@ -378,9 +403,12 @@ export default function Onboarding() {
             )}
             <button
               onClick={next}
+              disabled={submitting}
               className="flex-1 flex items-center justify-center gap-2 px-6 py-3 rounded-xl text-white font-medium text-sm bg-primary hover:bg-blue-700 transition-transform duration-150 hover:-translate-y-0.5 shadow-card-md"
             >
-              {step === 2 ? (
+              {submitting ? (
+                "Syncing profile..."
+              ) : step === 2 ? (
                 "Launch dashboard"
               ) : (
                 <>
@@ -394,7 +422,7 @@ export default function Onboarding() {
         </div>
 
         <p className="mt-6 text-center text-xs text-gray-400">
-          Your health data is stored locally and never shared.
+          Your profile is synced securely with AeroGuard backend for personalized analytics.
         </p>
       </motion.div>
     </div>

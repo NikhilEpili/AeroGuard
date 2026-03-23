@@ -20,13 +20,15 @@ async def lifespan(app: FastAPI):
     configure_logging()
     logger = get_logger(__name__)
     logger.info("Starting AeroGuard backend")
+    updater_task = None
     # updater_task = asyncio.create_task(run_pollution_grid_updater())
     yield
-    # updater_task.cancel()
-    try:
-        await updater_task
-    except asyncio.CancelledError:
-        pass
+    if updater_task:
+        updater_task.cancel()
+        try:
+            await updater_task
+        except asyncio.CancelledError:
+            pass
     logger.info("Stopping AeroGuard backend")
 
 

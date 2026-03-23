@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
   FiMap,
@@ -7,8 +7,10 @@ import {
   FiZoomIn,
   FiZoomOut,
 } from "react-icons/fi";
+import { getPollutionHeatmap } from "../services/aeroguardApi";
+import { geocodeLocation } from "../services/geocoding";
 
-const HyperlocalMap = () => {
+const HyperlocalMap = ({ user }) => {
   const [selectedPollutant, setSelectedPollutant] = useState("pm25");
   const [zoomLevel, setZoomLevel] = useState(14);
 
@@ -19,7 +21,7 @@ const HyperlocalMap = () => {
     { id: "pm10", name: "PM10", unit: "μg/m³", color: "from-amber-400 to-amber-600" },
   ];
 
-  const hotspots = [
+  const [hotspots, setHotspots] = useState([
     {
       id: 1,
       name: "Downtown Core",
@@ -85,43 +87,97 @@ const HyperlocalMap = () => {
       description: "Major traffic intersection",
       coordinates: "40.755°N, 73.995°W",
     },
-  ];
+  ]);
 
-  const cleanZones = [
-    {
-      id: "cz1",
-      name: "Central Park",
-      type: "Park",
-      pm25: 18,
-      description: "Green recreational area",
-    },
-    {
-      id: "cz2",
-      name: "Riverside District",
-      type: "Residential",
-      pm25: 28,
-      description: "Low-traffic residential zone",
-    },
-    {
-      id: "cz3",
-      name: "University Campus",
-      type: "Educational",
-      pm25: 25,
-      description: "Academic district with greenery",
-    },
-  ];
+  const cleanZones = useMemo(
+    () =>
+      [...hotspots]
+        .sort((a, b) => a.pm25 - b.pm25)
+        .slice(0, 3)
+        .map((zone, index) => ({
+          id: `cz${index + 1}`,
+          name: zone.name,
+          type: "Low Pollution Zone",
+          pm25: zone.pm25,
+          description: zone.description,
+        })),
+    [hotspots]
+  );
 
-  const schoolZones = [
-    {
-      id: "sz1",
-      name: "Lincoln Elementary",
-      coordinates: "40.782, -73.964",
-      aqi: 45,
-    },
-    { id: "sz2", name: "Greenwood Middle", coordinates: "40.768, -73.975", aqi: 52 },
-  ];
+  const schoolZones = useMemo(
+    () =>
+      [...hotspots]
+        .sort((a, b) => a.pm25 - b.pm25)
+        .slice(0, 2)
+        .map((zone, index) => ({
+          id: `sz${index + 1}`,
+          name: `School Zone ${index + 1}`,
+          coordinates: `${zone.lat.toFixed(3)}, ${zone.lng.toFixed(3)}`,
+          aqi: zone.pm25,
+        })),
+    [hotspots]
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        const coords = user?.coords || (await geocodeLocation(user?.location));
+        if (!coords) return;
+
+        const [lat, lon] = coords;
+        const payload = await getPollutionHeatmap({
+          minLat: lat - 0.03,
+          minLon: lon - 0.03,
+          maxLat: lat + 0.03,
+          maxLon: lon + 0.03,
+          gridSizeM: 400,
+          usePredictedPollution: true,
+        });
+
+        if (cancelled || !Array.isArray(payload?.points) || payload.points.length === 0) {
+          return;
+        }
+
+        setHotspots(
+          payload.points.slice(0, 20).map((point, index) => ({
+            id: index + 1,
+            name: `Cell ${index + 1}`,
+            lat: point.lat,
+            lng: point.lon,
+            pm25: Number(point.pm25 || 0),
+            no2: Number(point.pm25 || 0) * 0.45,
+            o3: Number(point.pm25 || 0) * 0.35,
+            pm10: Number(point.pm25 || 0) * 1.6,
+            severity: point.risk_level || "Moderate",
+            description: `${point.risk_level || "Moderate"} pollution area`,
+            coordinates: `${point.lat.toFixed(3)}°N, ${Math.abs(point.lon).toFixed(3)}°E`,
+          }))
+        );
+      } catch (error) {
+        console.warn("Heatmap sync failed", error);
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   const currentPollutant = pollutantTypes.find((p) => p.id === selectedPollutant);
+  const latMin = Math.min(...hotspots.map((h) => h.lat));
+  const latMax = Math.max(...hotspots.map((h) => h.lat));
+  const lonMin = Math.min(...hotspots.map((h) => h.lng));
+  const lonMax = Math.max(...hotspots.map((h) => h.lng));
+
+  const toPercent = (value, min, max) => {
+    if (!Number.isFinite(value) || !Number.isFinite(min) || !Number.isFinite(max) || max === min) {
+      return 50;
+    }
+    return ((value - min) / (max - min)) * 80 + 10;
+  };
 
   const getPollutionColor = (value, pollutant) => {
     if (pollutant === "pm25") {
@@ -246,8 +302,8 @@ const HyperlocalMap = () => {
                       transition={{ delay: i * 0.1 }}
                       className="absolute group cursor-pointer"
                       style={{
-                        left: `${20 + (hotspot.lng + 74) * 5}%`,
-                        top: `${30 + (hotspot.lat - 40.7) * 30}%`,
+                        left: `${toPercent(hotspot.lng, lonMin, lonMax)}%`,
+                        top: `${100 - toPercent(hotspot.lat, latMin, latMax)}%`,
                       }}
                     >
                       <motion.div

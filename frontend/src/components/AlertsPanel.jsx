@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   FiAlertTriangle,
@@ -8,6 +8,13 @@ import {
   FiX,
   FiClock,
 } from "react-icons/fi";
+import {
+  getExposureSummary,
+  getHealthRisk,
+  predictPollution,
+} from "../services/aeroguardApi";
+import { geocodeLocation } from "../services/geocoding";
+import { resolveUserId } from "../services/userProfile";
 
 const ALL_ALERTS = [
   {
@@ -91,13 +98,95 @@ const SEVERITY_CONFIG = {
   Info: { color: "#10B981", bg: "#ECFDF5", dot: "bg-green-500" },
 };
 
-export default function AlertsPanel({ compact }) {
+export default function AlertsPanel({ compact, user }) {
   const [dismissed, setDismissed] = useState([]);
   const [filter, setFilter] = useState("All");
+  const [alerts, setAlerts] = useState(ALL_ALERTS);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        const userId = resolveUserId(user);
+        const coords = user?.coords || (await geocodeLocation(user?.location));
+
+        const [riskResult, summaryResult, predictionResult] = await Promise.allSettled([
+          getHealthRisk(userId),
+          getExposureSummary(userId),
+          coords
+            ? predictPollution({ lat: coords[0], lon: coords[1] })
+            : Promise.resolve(null),
+        ]);
+
+        if (cancelled) return;
+
+        const risk = riskResult.status === "fulfilled" ? riskResult.value : null;
+        const summary = summaryResult.status === "fulfilled" ? summaryResult.value : null;
+        const prediction = predictionResult.status === "fulfilled" ? predictionResult.value : null;
+
+        const generated = [];
+
+        if (prediction?.aqi_next_30_min > prediction?.current_aqi + 10) {
+          generated.push({
+            id: 101,
+            title: "AQI Rising Rapidly",
+            msg: `Forecast shows AQI increasing from ${Math.round(prediction.current_aqi)} to ${Math.round(prediction.aqi_next_30_min)} in 30 minutes.`,
+            type: "AQI",
+            severity: prediction.aqi_next_30_min > 120 ? "High" : "Moderate",
+            time: "Just now",
+            color: prediction.aqi_next_30_min > 120 ? "#F97316" : "#F59E0B",
+            bg: prediction.aqi_next_30_min > 120 ? "#FFF7ED" : "#FFFBEB",
+            icon: FiAlertTriangle,
+            location: user?.location || "Your Area",
+          });
+        }
+
+        if (risk?.risk_score >= 70) {
+          generated.push({
+            id: 102,
+            title: "High Health Risk Warning",
+            msg: risk.short_term_warning || "Personalized health risk is elevated.",
+            type: "Health",
+            severity: "High",
+            time: "Just now",
+            color: "#F97316",
+            bg: "#FFF7ED",
+            icon: FiAlertTriangle,
+            location: user?.location || "Your Area",
+          });
+        }
+
+        if (summary?.risk_level && ["High", "Extreme"].includes(summary.risk_level)) {
+          generated.push({
+            id: 103,
+            title: "Exposure Threshold Exceeded",
+            msg: `Exposure score is ${Number(summary.exposure_score).toFixed(1)} with ${summary.risk_level.toLowerCase()} daily exposure risk.`,
+            type: "Exposure",
+            severity: summary.risk_level === "Extreme" ? "Critical" : "High",
+            time: "Just now",
+            color: summary.risk_level === "Extreme" ? "#DC2626" : "#F97316",
+            bg: summary.risk_level === "Extreme" ? "#FFF1F2" : "#FFF7ED",
+            icon: summary.risk_level === "Extreme" ? FiAlertOctagon : FiAlertTriangle,
+            location: user?.location || "Your Area",
+          });
+        }
+
+        setAlerts(generated.length > 0 ? generated : ALL_ALERTS);
+      } catch (error) {
+        console.warn("Failed to generate dynamic alerts", error);
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   const dismiss = (id) => setDismissed((d) => [...d, id]);
 
-  const filteredAlerts = ALL_ALERTS.filter(
+  const filteredAlerts = alerts.filter(
     (a) =>
       !dismissed.includes(a.id) &&
       (filter === "All" || a.severity === filter)

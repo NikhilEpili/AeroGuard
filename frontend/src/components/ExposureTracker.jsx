@@ -7,9 +7,17 @@ import {
   FiAlertTriangle,
   FiCheckCircle,
 } from "react-icons/fi";
+import {
+  getExposureSummary,
+  getNearbySensors,
+  logLocation,
+  predictPollution,
+} from "../services/aeroguardApi";
+import { geocodeLocation } from "../services/geocoding";
+import { resolveUserId } from "../services/userProfile";
 
-const ExposureTracker = () => {
-  const [exposureData] = useState({
+const ExposureTracker = ({ user }) => {
+  const [exposureData, setExposureData] = useState({
     totalExposure: 342,
     pm25Levels: 142,
     riskLevel: "HIGH",
@@ -45,6 +53,66 @@ const ExposureTracker = () => {
       { time: "9 PM", value: 45 },
     ],
   });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        const userId = resolveUserId(user);
+        const coords = user?.coords || (await geocodeLocation(user?.location));
+        if (!coords) return;
+
+        await logLocation({
+          user_id: userId,
+          latitude: Number(coords[0].toFixed(6)),
+          longitude: Number(coords[1].toFixed(6)),
+        });
+
+        const [summary, nearby, prediction] = await Promise.allSettled([
+          getExposureSummary(userId),
+          getNearbySensors({ lat: coords[0], lon: coords[1], limit: 3 }),
+          predictPollution({ lat: coords[0], lon: coords[1] }),
+        ]);
+
+        if (cancelled) return;
+
+        const summaryData = summary.status === "fulfilled" ? summary.value : null;
+        const nearbyData = nearby.status === "fulfilled" ? nearby.value : [];
+        const predictionData = prediction.status === "fulfilled" ? prediction.value : null;
+
+        const totalExposure = Number(summaryData?.pm25_total || exposureData.totalExposure);
+        const pm25Levels = Number(predictionData?.pm25_next_30_min || exposureData.pm25Levels);
+        const riskLevel = String(summaryData?.risk_level || "Moderate").toUpperCase();
+
+        const locations = Array.isArray(nearbyData) && nearbyData.length > 0
+          ? nearbyData.map((sensor) => ({
+              name: sensor.location_name,
+              time: "Live",
+              exposure: Math.round(pm25Levels * 1.2),
+              pm25: Math.round(pm25Levels),
+              risk:
+                pm25Levels > 60 ? "High" : pm25Levels > 35 ? "Moderate" : "Low",
+            }))
+          : exposureData.locations;
+
+        setExposureData((current) => ({
+          ...current,
+          totalExposure,
+          pm25Levels,
+          riskLevel,
+          locations,
+        }));
+      } catch (error) {
+        console.warn("Exposure data sync failed", error);
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   const getRiskColor = (level) => {
     switch (level) {
@@ -89,7 +157,7 @@ const ExposureTracker = () => {
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
                 Today's Total Exposure
               </p>
-              <p className="text-3xl font-bold text-gray-900 mt-2">342</p>
+              <p className="text-3xl font-bold text-gray-900 mt-2">{Math.round(exposureData.totalExposure)}</p>
               <p className="text-xs text-gray-500 mt-1">μg/m³·hours</p>
             </div>
             <div className="w-12 h-12 rounded-xl bg-orange-100 flex items-center justify-center">
@@ -114,7 +182,7 @@ const ExposureTracker = () => {
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
                 PM2.5 Exposure
               </p>
-              <p className="text-3xl font-bold text-gray-900 mt-2">142</p>
+              <p className="text-3xl font-bold text-gray-900 mt-2">{Math.round(exposureData.pm25Levels)}</p>
               <p className="text-xs text-gray-500 mt-1">μg/m³</p>
             </div>
             <div className="w-12 h-12 rounded-xl bg-red-100 flex items-center justify-center">
@@ -140,7 +208,7 @@ const ExposureTracker = () => {
                 Current Risk Level
               </p>
               <div className="flex items-center gap-2 mt-2">
-                <span className="text-2xl font-bold text-red-600">HIGH</span>
+                <span className="text-2xl font-bold text-red-600">{exposureData.riskLevel}</span>
                 <span className="text-xs font-medium px-2 py-1 rounded-full bg-red-100 text-red-700">
                   Action needed
                 </span>

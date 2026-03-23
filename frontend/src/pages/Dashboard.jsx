@@ -119,8 +119,8 @@ export default function Dashboard() {
 
             <div className="grid gap-6 lg:grid-cols-[1.7fr,1.1fr] items-start">
               <div className="space-y-6">
-                <PollutionStats />
-                <AlertsPanel compact />
+                <PollutionStats user={user} />
+                <AlertsPanel compact user={user} />
               </div>
               <HealthRiskPanel user={user} />
             </div>
@@ -131,7 +131,7 @@ export default function Dashboard() {
           <motion.div key="health" variants={pageVariants} initial="initial" animate="animate" exit="exit">
             <HealthRiskPanel user={user} full />
             <div className="mt-6">
-              <PollutionStats full />
+                <PollutionStats full user={user} />
             </div>
           </motion.div>
         );
@@ -144,7 +144,7 @@ export default function Dashboard() {
       case "alerts":
         return (
           <motion.div key="alerts" variants={pageVariants} initial="initial" animate="animate" exit="exit">
-            <Alerts />
+            <Alerts user={user} />
           </motion.div>
         );
       case "analytics":
@@ -168,7 +168,7 @@ export default function Dashboard() {
                 Monitor your daily pollution exposure based on GPS tracking and movement patterns.
               </p>
             </div>
-            <ExposureTracker />
+            <ExposureTracker user={user} />
           </motion.div>
         );
       case "safe-route":
@@ -204,7 +204,7 @@ export default function Dashboard() {
                 Interactive map showing pollution hotspots, safe zones, and real-time air quality data.
               </p>
             </div>
-            <HyperlocalMap />
+            <HyperlocalMap user={user} />
           </motion.div>
         );
       default:

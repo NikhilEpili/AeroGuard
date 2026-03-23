@@ -1,5 +1,8 @@
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { FiShield, FiAlertTriangle, FiCheckCircle, FiInfo, FiTrendingUp, FiActivity } from "react-icons/fi";
+import { getHealthRisk } from "../services/aeroguardApi";
+import { resolveUserId } from "../services/userProfile";
 
 const getInsight = (conditions) => {
   switch (conditions) {
@@ -165,7 +168,65 @@ const CircularProgress = ({ score, color }) => {
 };
 
 export default function HealthRiskPanel({ user, full }) {
-  const insight = getInsight(user?.conditions);
+  const [backendRisk, setBackendRisk] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        const risk = await getHealthRisk(resolveUserId(user));
+        if (!cancelled) {
+          setBackendRisk(risk);
+        }
+      } catch (error) {
+        console.warn("Health risk fetch failed", error);
+      }
+    };
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  const insight = useMemo(() => {
+    const base = getInsight(user?.conditions);
+    if (!backendRisk) return base;
+
+    const backendLevel = backendRisk.risk_level || base.level;
+    const levelPalette =
+      backendLevel === "Low"
+        ? { levelColor: "#10B981", levelBg: "#ECFDF5" }
+        : backendLevel === "Moderate"
+        ? { levelColor: "#F59E0B", levelBg: "#FFFBEB" }
+        : backendLevel === "Extreme"
+        ? { levelColor: "#DC2626", levelBg: "#FFF1F2" }
+        : { levelColor: "#EF4444", levelBg: "#FEF2F2" };
+
+    return {
+      ...base,
+      title: `${backendLevel} Health Risk`,
+      text: [backendRisk.short_term_warning, backendRisk.long_term_warning]
+        .filter(Boolean)
+        .join(" "),
+      riskScore: Number(backendRisk.risk_score ?? base.riskScore),
+      level: backendLevel,
+      levelColor: levelPalette.levelColor,
+      levelBg: levelPalette.levelBg,
+      symptoms:
+        backendRisk.predicted_symptoms?.length > 0
+          ? backendRisk.predicted_symptoms.map((symptom, i) => ({
+              name: symptom.replace(/\s*\([^)]*\)/g, ""),
+              probability: ["65%", "50%", "40%", "30%"][i] || "25%",
+            }))
+          : base.symptoms,
+      actions:
+        backendRisk.recommendations?.length > 0
+          ? backendRisk.recommendations
+          : base.actions,
+    };
+  }, [backendRisk, user?.conditions]);
 
   return (
     <div className="space-y-4">
