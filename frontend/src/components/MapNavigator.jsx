@@ -275,8 +275,8 @@ export default function MapNavigator({ user }) {
         </h3>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-end">
-        <div className="lg:col-span-3">
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-3 items-end">
+        <div className="xl:col-span-3">
           <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
             Start Location
           </label>
@@ -291,7 +291,7 @@ export default function MapNavigator({ user }) {
           </div>
         </div>
 
-        <div className="lg:col-span-3">
+        <div className="xl:col-span-3">
           <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
             Destination
           </label>
@@ -306,7 +306,31 @@ export default function MapNavigator({ user }) {
           </div>
         </div>
 
-        <div className="lg:col-span-2">
+        <div className="xl:col-span-2">
+          <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
+            Route Type
+          </label>
+          <select
+            value={selectedRouteType}
+            onChange={(e) => setSelectedRouteType(e.target.value)}
+            className="w-full px-3 py-2.5 rounded-lg border border-gray-200 focus:border-primary focus:outline-none text-sm transition-colors cursor-pointer"
+          >
+            {(routeOptions.length > 0
+              ? routeOptions
+              : [{ id: "safe", type: "safe", positions: [] }]
+            ).map((option) => {
+              const exposure = routeOptions.find((candidate) => candidate.type === option.type);
+              const exposureHint = exposure?.positions?.length ? `(${exposure.positions.length} pts)` : "";
+              return (
+                <option key={option.id} value={option.type}>
+                  {routeTypeLabel(option.type)} {exposureHint}
+                </option>
+              );
+            })}
+          </select>
+        </div>
+
+        <div className="xl:col-span-2">
           <button
             onClick={handleSearch}
             disabled={searching}
@@ -353,7 +377,7 @@ export default function MapNavigator({ user }) {
           <button
             type="button"
             onClick={() => setPinMode("start")}
-            className={`flex-1 px-3 py-3 rounded-xl text-xs font-semibold border ${
+            className={`w-24 px-3 py-2 rounded-lg text-xs font-semibold border ${
               pinMode === "start"
                 ? "bg-emerald-50 border-emerald-300 text-emerald-700"
                 : "bg-white border-gray-200 text-gray-600"
@@ -364,7 +388,7 @@ export default function MapNavigator({ user }) {
           <button
             type="button"
             onClick={() => setPinMode("destination")}
-            className={`flex-1 px-3 py-3 rounded-xl text-xs font-semibold border ${
+            className={`w-24 px-3 py-2 rounded-lg text-xs font-semibold border ${
               pinMode === "destination"
                 ? "bg-rose-50 border-rose-300 text-rose-700"
                 : "bg-white border-gray-200 text-gray-600"
