@@ -61,3 +61,34 @@ class DailyExposureSummaryResponse(BaseModel):
 
 class DailyExposureReportResponse(DailyExposureSummaryResponse):
     pass
+
+
+class ExposureLogCreate(BaseModel):
+    user_id: int
+    latitude: Decimal = Field(..., max_digits=9, decimal_places=6)
+    longitude: Decimal = Field(..., max_digits=9, decimal_places=6)
+    timestamp: datetime
+
+
+class ExposureLogResponse(BaseModel):
+    id: int
+    user_id: int
+    latitude: Decimal
+    longitude: Decimal
+    pm25: Decimal
+    aqi: int
+    timestamp: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ExposureTimelineItem(BaseModel):
+    time: str
+    pm25: int
+
+
+class ExposureReportResponse(BaseModel):
+    avg_pm25: float
+    max_pm25: float
+    min_pm25: float
+    cigarettes: float
+    risk_level: str

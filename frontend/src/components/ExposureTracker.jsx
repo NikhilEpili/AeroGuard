@@ -8,7 +8,8 @@ import {
   FiCheckCircle,
 } from "react-icons/fi";
 import {
-  getExposureSummary,
+  getExposureReport,
+  getExposureTimeline,
   getNearbySensors,
   logLocation,
   predictPollution,
@@ -67,33 +68,44 @@ const ExposureTracker = ({ user }) => {
           user_id: userId,
           latitude: Number(coords[0].toFixed(6)),
           longitude: Number(coords[1].toFixed(6)),
+          timestamp: new Date().toISOString(),
         });
 
-        const [summary, nearby, prediction] = await Promise.allSettled([
-          getExposureSummary(userId),
+        const [report, timeline, nearby, prediction] = await Promise.allSettled([
+          getExposureReport(userId),
+          getExposureTimeline(userId),
           getNearbySensors({ lat: coords[0], lon: coords[1], limit: 3 }),
           predictPollution({ lat: coords[0], lon: coords[1] }),
         ]);
 
         if (cancelled) return;
 
-        const summaryData = summary.status === "fulfilled" ? summary.value : null;
+        const reportData = report.status === "fulfilled" ? report.value : null;
+        const timelineData = timeline.status === "fulfilled" ? timeline.value : [];
         const nearbyData = nearby.status === "fulfilled" ? nearby.value : [];
         const predictionData = prediction.status === "fulfilled" ? prediction.value : null;
 
-        const totalExposure = Number(summaryData?.pm25_total || exposureData.totalExposure);
+        const totalExposure = Number(reportData?.avg_pm25 || exposureData.totalExposure);
         const pm25Levels = Number(predictionData?.pm25_next_30_min || exposureData.pm25Levels);
-        const riskLevel = String(summaryData?.risk_level || "Moderate").toUpperCase();
+        const riskLevel = String(reportData?.risk_level || "MEDIUM").toUpperCase();
+
+        const dailyTrend =
+          Array.isArray(timelineData) && timelineData.length > 0
+            ? timelineData.map((point) => ({
+              time: point.time,
+              value: Number(point.pm25),
+            }))
+            : exposureData.dailyTrend;
 
         const locations = Array.isArray(nearbyData) && nearbyData.length > 0
           ? nearbyData.map((sensor) => ({
-              name: sensor.location_name,
-              time: "Live",
-              exposure: Math.round(pm25Levels * 1.2),
-              pm25: Math.round(pm25Levels),
-              risk:
-                pm25Levels > 60 ? "High" : pm25Levels > 35 ? "Moderate" : "Low",
-            }))
+            name: sensor.location_name,
+            time: "Live",
+            exposure: Math.round(pm25Levels * 1.2),
+            pm25: Math.round(pm25Levels),
+            risk:
+              pm25Levels > 60 ? "High" : pm25Levels > 35 ? "Moderate" : "Low",
+          }))
           : exposureData.locations;
 
         setExposureData((current) => ({
@@ -101,6 +113,7 @@ const ExposureTracker = ({ user }) => {
           totalExposure,
           pm25Levels,
           riskLevel,
+          dailyTrend,
           locations,
         }));
       } catch (error) {
@@ -229,7 +242,7 @@ const ExposureTracker = ({ user }) => {
         className="bg-white rounded-2xl shadow-card border border-gray-100 p-6"
       >
         <h4 className="font-semibold text-gray-900 mb-4">Daily Exposure Trend</h4>
-        
+
         <div className="flex items-end justify-between gap-3 h-48">
           {exposureData.dailyTrend.map((point, i) => (
             <div
@@ -260,7 +273,7 @@ const ExposureTracker = ({ user }) => {
         <div className="px-6 py-4 border-b border-gray-100">
           <h4 className="font-semibold text-gray-900">Exposure by Location</h4>
         </div>
-        
+
         <div className="divide-y divide-gray-100">
           {exposureData.locations.map((location, i) => {
             const riskColors = getRiskColor(location.risk);
@@ -293,7 +306,7 @@ const ExposureTracker = ({ user }) => {
                     {location.risk}
                   </div>
                 </div>
-                
+
                 <div className="ml-13 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-xs text-gray-600">Cumulative Exposure</span>

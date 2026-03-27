@@ -9,7 +9,7 @@ import {
   FiArrowDown,
 } from "react-icons/fi";
 import {
-  getExposureSummary,
+  getExposureReport,
   getHealthRisk,
   predictPollution,
 } from "../services/aeroguardApi";
@@ -70,7 +70,7 @@ export default function AQICards({ user }) {
 
         const [risk, summary, prediction] = await Promise.allSettled([
           getHealthRisk(userId),
-          getExposureSummary(userId),
+          getExposureReport(userId),
           coords
             ? predictPollution({ lat: coords[0], lon: coords[1] })
             : Promise.resolve(null),

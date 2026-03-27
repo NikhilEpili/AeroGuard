@@ -35,8 +35,4 @@ def get_health_risk(user_id: int, db: Session = Depends(get_db)):
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
-        import traceback
-        import logging
-        logging.error(f"Error predicting risk for user {user_id}: {str(e)}")
-        logging.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Internal Error: {str(e)}")

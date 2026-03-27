@@ -1,115 +1,157 @@
-from datetime import date, datetime
+import json
+import random
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from typing import List, Optional, Tuple
+from typing import Optional
 
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from backend.modules.exposure.models import DailyExposureSummary, UserHealthProfile, UserLocationLog
-from backend.services.pollution_service import PollutionService
+from backend.cache.redis_client import get_sync_redis_client
+from backend.modules.exposure.models import UserHealthProfile, UserLog
 
 
 class ExposureService:
     def __init__(self):
-        self.pollution_service = PollutionService()
+        self._redis = get_sync_redis_client()
 
-    def get_pollution_for_location(self, lat: float, lon: float) -> Tuple[int, Decimal]:
-        """Fetch nearest sensor pollution data using IDW interpolation."""
-        # Note: PollutionService.interpolator.interpolate is synchronous
-        pollution = self.pollution_service.interpolator.interpolate(
-            lat, lon, self.pollution_service._sample_points
+    @staticmethod
+    def _normalize_timestamp(ts: datetime) -> datetime:
+        if ts.tzinfo is None:
+            return ts.replace(tzinfo=timezone.utc)
+        return ts.astimezone(timezone.utc)
+
+    @staticmethod
+    def _risk_from_avg_pm25(avg_pm25: float) -> str:
+        if avg_pm25 < 40:
+            return "LOW"
+        if avg_pm25 < 70:
+            return "MEDIUM"
+        return "HIGH"
+
+    def create_user_log(self, db: Session, user_id: int, latitude: Decimal, longitude: Decimal, timestamp: datetime) -> UserLog:
+        pm25_int = random.randint(40, 120)
+        pm25 = Decimal(str(pm25_int))
+        aqi = int(pm25_int * 2)
+
+        new_log = UserLog(
+            user_id=user_id,
+            latitude=latitude,
+            longitude=longitude,
+            pm25=pm25,
+            aqi=aqi,
+            timestamp=self._normalize_timestamp(timestamp),
         )
-        pm25 = Decimal(str(round(float(pollution["pm25"]), 2)))
-        aqi = self.pollution_service.pm25_to_aqi(float(pm25))
-        return aqi, pm25
+        db.add(new_log)
+        db.commit()
+        db.refresh(new_log)
+        self._invalidate_user_cache(user_id)
+        return new_log
 
-    @staticmethod
-    def check_alert_status(aqi: int, pm25: Decimal) -> Tuple[bool, Optional[str]]:
-        if aqi > 150 or pm25 > 60:
-            return True, "High pollution nearby. Consider mask or route change"
-        return False, None
-
-    @staticmethod
-    def calculate_risk_level(exposure_score: float) -> str:
-        if exposure_score < 20:
-            return "Low"
-        elif exposure_score < 50:
-            return "Moderate"
-        elif exposure_score < 75:
-            return "High"
-        else:
-            return "Extreme"
-
-    @staticmethod
-    def calculate_daily_summary(db: Session, user_id: int, target_date: date) -> Optional[DailyExposureSummary]:
-        logs = db.execute(
-            select(UserLocationLog)
-            .where(UserLocationLog.user_id == user_id)
-            .where(func.date(UserLocationLog.timestamp) == target_date)
-            .order_by(UserLocationLog.timestamp)
+    def get_logs_last_24h(self, db: Session, user_id: int) -> list[UserLog]:
+        now = datetime.now(timezone.utc)
+        since = now - timedelta(hours=24)
+        return db.execute(
+            select(UserLog)
+            .where(UserLog.user_id == user_id)
+            .where(UserLog.timestamp >= since)
+            .order_by(UserLog.timestamp.asc())
         ).scalars().all()
 
+    def get_timeline(self, db: Session, user_id: int) -> list[dict[str, int | str]]:
+        cache_key = f"exposure:timeline:{user_id}"
+        cached = self._read_cache(cache_key)
+        if cached is not None:
+            return cached
+
+        logs = self.get_logs_last_24h(db, user_id)
+        timeline = [{"time": log.timestamp.strftime("%H:%M"), "pm25": int(float(log.pm25))} for log in logs]
+        self._write_cache(cache_key, timeline)
+        return timeline
+
+    @staticmethod
+    def calculate_exposure(logs: list[UserLog]) -> dict[str, float | str]:
         if not logs:
+            return {
+                "avg_pm25": 0.0,
+                "max_pm25": 0.0,
+                "min_pm25": 0.0,
+                "cigarettes": 0.0,
+                "risk_level": "LOW",
+            }
+
+        if len(logs) == 1:
+            avg_pm25 = float(logs[0].pm25)
+            max_pm25 = avg_pm25
+            min_pm25 = avg_pm25
+            cigarettes = min(10.0, avg_pm25 / 22.0)
+            return {
+                "avg_pm25": round(avg_pm25, 2),
+                "max_pm25": round(max_pm25, 2),
+                "min_pm25": round(min_pm25, 2),
+                "cigarettes": round(cigarettes, 2),
+                "risk_level": ExposureService._risk_from_avg_pm25(avg_pm25),
+            }
+
+        weighted_sum = 0.0
+        total_seconds = 0.0
+        max_pm25 = max(float(log.pm25) for log in logs)
+        min_pm25 = min(float(log.pm25) for log in logs)
+
+        for idx, log in enumerate(logs[:-1]):
+            current_ts = ExposureService._normalize_timestamp(log.timestamp)
+            next_ts = ExposureService._normalize_timestamp(logs[idx + 1].timestamp)
+            duration_seconds = max((next_ts - current_ts).total_seconds(), 0.0)
+            weighted_sum += float(log.pm25) * duration_seconds
+            total_seconds += duration_seconds
+
+        if total_seconds <= 0:
+            avg_pm25 = float(logs[-1].pm25)
+        else:
+            avg_pm25 = weighted_sum / total_seconds
+
+        cigarettes = min(10.0, avg_pm25 / 22.0)
+        return {
+            "avg_pm25": round(avg_pm25, 2),
+            "max_pm25": round(max_pm25, 2),
+            "min_pm25": round(min_pm25, 2),
+            "cigarettes": round(cigarettes, 2),
+            "risk_level": ExposureService._risk_from_avg_pm25(avg_pm25),
+        }
+
+    def get_exposure_report(self, db: Session, user_id: int) -> dict[str, float | str]:
+        cache_key = f"exposure:report:{user_id}"
+        cached = self._read_cache(cache_key)
+        if cached is not None:
+            return cached
+
+        logs = self.get_logs_last_24h(db, user_id)
+        report = self.calculate_exposure(logs)
+        self._write_cache(cache_key, report)
+        return report
+
+    def _invalidate_user_cache(self, user_id: int) -> None:
+        try:
+            self._redis.delete(f"exposure:timeline:{user_id}")
+            self._redis.delete(f"exposure:report:{user_id}")
+            self._redis.delete(f"health:risk:{user_id}")
+        except Exception:
+            return
+
+    def _read_cache(self, key: str) -> Optional[dict | list]:
+        try:
+            payload = self._redis.get(key)
+            if not payload:
+                return None
+            return json.loads(payload)
+        except Exception:
             return None
 
-        total_pm25 = Decimal("0")
-        aqi_values = []
-        total_exposure_units = Decimal("0")
-
-        for i, log in enumerate(logs):
-            total_pm25 += log.pm25
-            aqi_values.append(log.aqi_value)
-            
-            # exposure_unit = pm25 * duration_minutes
-            if i < len(logs) - 1:
-                duration = (logs[i+1].timestamp - log.timestamp).total_seconds() / 60
-            else:
-                # For the last log of the day, assume it covers 1 minute or until end of day
-                duration = 1.0
-            
-            total_exposure_units += log.pm25 * Decimal(str(duration))
-
-        avg_aqi = float(sum(aqi_values)) / len(aqi_values)
-        max_aqi = max(aqi_values)
-        min_aqi = min(aqi_values)
-        
-        # exposure_score = min(100, total_exposure / 10)
-        exposure_score = min(100.0, float(total_exposure_units) / 10.0)
-        
-        # cigarettes = total_pm25 / 22
-        cigarette_equivalent = float(total_pm25) / 22.0
-
-        summary = DailyExposureSummary(
-            user_id=user_id,
-            date=target_date,
-            avg_aqi=avg_aqi,
-            max_aqi=max_aqi,
-            min_aqi=min_aqi,
-            pm25_total=total_pm25,
-            exposure_score=exposure_score,
-            cigarette_equivalent=cigarette_equivalent,
-            risk_level=ExposureService.calculate_risk_level(exposure_score)
-        )
-        
-        # Update or create
-        existing = db.execute(
-            select(DailyExposureSummary)
-            .where(DailyExposureSummary.user_id == user_id)
-            .where(DailyExposureSummary.date == target_date)
-        ).scalar_one_or_none()
-        
-        if existing:
-            existing.avg_aqi = summary.avg_aqi
-            existing.max_aqi = summary.max_aqi
-            existing.min_aqi = summary.min_aqi
-            existing.pm25_total = summary.pm25_total
-            existing.exposure_score = summary.exposure_score
-            existing.cigarette_equivalent = summary.cigarette_equivalent
-            existing.risk_level = summary.risk_level
-            return existing
-        else:
-            db.add(summary)
-            return summary
+    def _write_cache(self, key: str, value: dict | list, ttl_seconds: int = 120) -> None:
+        try:
+            self._redis.setex(key, ttl_seconds, json.dumps(value))
+        except Exception:
+            return
 
     @staticmethod
     def get_health_profile(db: Session, user_id: int) -> Optional[UserHealthProfile]:

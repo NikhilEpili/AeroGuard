@@ -1,18 +1,17 @@
-from datetime import date
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from backend.db.database import get_db
-from backend.modules.exposure.models import UserHealthProfile, UserLocationLog
+from backend.modules.exposure.models import UserHealthProfile
 from backend.modules.exposure.schemas import (
-    DailyExposureReportResponse,
-    DailyExposureSummaryResponse,
+    ExposureLogCreate,
+    ExposureLogResponse,
+    ExposureReportResponse,
+    ExposureTimelineItem,
     UserHealthProfileCreate,
     UserHealthProfileResponse,
-    LocationLogCreate,
-    LocationLogResponse
 )
 from backend.modules.exposure.service import ExposureService
 
@@ -45,64 +44,33 @@ def get_profile(user_id: int, db: Session = Depends(get_db)):
     return profile
 
 
-@router.post("/log", response_model=LocationLogResponse)
-def log_location(log_data: LocationLogCreate, db: Session = Depends(get_db)):
-    # 1. Fetch nearest sensor pollution if not provided
-    aqi = log_data.aqi_value
-    pm25 = log_data.pm25
-    
-    if aqi is None or pm25 is None:
-        aqi_fetched, pm25_fetched = service.get_pollution_for_location(
-            float(log_data.latitude), float(log_data.longitude)
-        )
-        aqi = aqi if aqi is not None else aqi_fetched
-        pm25 = pm25 if pm25 is not None else pm25_fetched
-
-    # 2. Check for alerts
-    is_alert, alert_msg = service.check_alert_status(aqi, pm25)
-
-    # 3. Store the log
-    new_log = UserLocationLog(
+@router.post("/log", response_model=ExposureLogResponse)
+def log_location(log_data: ExposureLogCreate, db: Session = Depends(get_db)):
+    return service.create_user_log(
+        db=db,
         user_id=log_data.user_id,
         latitude=log_data.latitude,
         longitude=log_data.longitude,
-        aqi_value=aqi,
-        pm25=pm25
+        timestamp=log_data.timestamp,
     )
-    db.add(new_log)
-    db.commit()
-    db.refresh(new_log)
-    
-    # 4. Construct response with alert info
-    response = LocationLogResponse.model_validate(new_log)
-    response.alert = is_alert
-    response.message = alert_msg
-    return response
 
 
-@router.get("/summary/{user_id}", response_model=DailyExposureSummaryResponse)
-def get_daily_summary(
-    user_id: int, 
-    target_date: date = Query(default=date.today()), 
-    db: Session = Depends(get_db)
-):
-    summary = service.calculate_daily_summary(db, user_id, target_date)
-    if not summary:
-        raise HTTPException(status_code=404, detail="No logs found for this date")
-    
-    db.commit() # Save the generated/updated summary
-    return summary
+@router.get("/timeline/{user_id}", response_model=List[ExposureTimelineItem])
+def get_timeline(user_id: int, db: Session = Depends(get_db)):
+    return service.get_timeline(db, user_id)
 
 
-@router.get("/report/{user_id}", response_model=DailyExposureReportResponse)
-def get_daily_report(
-    user_id: int, 
-    target_date: date = Query(default=date.today()), 
-    db: Session = Depends(get_db)
-):
-    summary = service.calculate_daily_summary(db, user_id, target_date)
-    if not summary:
-        raise HTTPException(status_code=404, detail="No logs found for this date")
-    
-    db.commit()
-    return summary
+@router.get("/report/{user_id}", response_model=ExposureReportResponse)
+def get_daily_report(user_id: int, db: Session = Depends(get_db)):
+    report = service.get_exposure_report(db, user_id)
+    if report["avg_pm25"] == 0.0:
+        raise HTTPException(status_code=404, detail="No logs found in the last 24 hours")
+    return report
+
+
+@router.get("/summary/{user_id}", response_model=ExposureReportResponse)
+def get_daily_summary(user_id: int, db: Session = Depends(get_db)):
+    report = service.get_exposure_report(db, user_id)
+    if report["avg_pm25"] == 0.0:
+        raise HTTPException(status_code=404, detail="No logs found in the last 24 hours")
+    return report

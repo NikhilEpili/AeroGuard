@@ -92,4 +92,4 @@ class RoadSegment(Base):
 
 
 # Import module models for Alembic discovery
-from backend.modules.exposure.models import UserHealthProfile, UserLocationLog, DailyExposureSummary # noqa: F401
+from backend.modules.exposure.models import UserHealthProfile, UserLocationLog, DailyExposureSummary, UserLog # noqa: F401
