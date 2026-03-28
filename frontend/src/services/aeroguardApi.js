@@ -1,27 +1,30 @@
 import { apiRequest } from "./apiClient";
 
 export const createOrUpdateHealthProfile = (payload) =>
-  apiRequest("/api/v1/exposure/profile", {
+  apiRequest("/api/exposure/profile", {
     method: "POST",
     body: JSON.stringify(payload),
   });
 
 export const getHealthRisk = (userId) =>
-  apiRequest(`/api/v1/health/risk/${userId}`);
+  apiRequest(`/api/health/risk/${userId}`);
 
 export const logLocation = (payload) =>
-  apiRequest("/api/v1/exposure/log", {
+  apiRequest("/api/exposure/log", {
     method: "POST",
     body: JSON.stringify(payload),
   });
 
+export const getExposureTimeline = (userId) =>
+  apiRequest(`/api/exposure/timeline/${userId}`);
+
 export const getExposureSummary = (userId, targetDate) =>
-  apiRequest(`/api/v1/exposure/summary/${userId}`, {
+  apiRequest(`/api/exposure/summary/${userId}`, {
     query: targetDate ? { target_date: targetDate } : undefined,
   });
 
 export const getExposureReport = (userId, targetDate) =>
-  apiRequest(`/api/v1/exposure/report/${userId}`, {
+  apiRequest(`/api/exposure/report/${userId}`, {
     query: targetDate ? { target_date: targetDate } : undefined,
   });
 

@@ -1,64 +1,97 @@
-from datetime import date
+import json
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy import select
 from sqlalchemy.orm import Session
-from backend.modules.exposure.models import UserHealthProfile, DailyExposureSummary
+
+from backend.cache.redis_client import get_sync_redis_client
+from backend.modules.exposure.models import UserHealthProfile, UserLog
+from backend.modules.health.model import predict_health_risk
 from backend.modules.health.schemas import HealthRiskResponse
 
 class HealthService:
+    def __init__(self):
+        self._redis = get_sync_redis_client()
+
     def get_user_risk_prediction(self, db: Session, user_id: int) -> HealthRiskResponse:
-        # 1. Fetch Health Profile
-        profile = db.query(UserHealthProfile).filter(UserHealthProfile.user_id == user_id).first()
-        if not profile:
-            raise ValueError("User health profile not found. Please create one first.")
+        cache_key = f"health:risk:{user_id}"
+        cached = self._read_cache(cache_key)
+        if cached is not None:
+            return HealthRiskResponse(**cached)
 
-        # 2. Fetch Latest Exposure Summary (Today)
-        today = date.today()
-        summary = db.query(DailyExposureSummary).filter(
-            DailyExposureSummary.user_id == user_id,
-            DailyExposureSummary.date == today
-        ).first()
-        
-        exposure_score = summary.exposure_score if (summary and hasattr(summary, 'exposure_score')) else 0.0
-        print(f"DEBUG: user_id={user_id}, exposure_score={exposure_score}, profile_age={profile.age}")
+        profile = db.execute(
+            select(UserHealthProfile).where(UserHealthProfile.user_id == user_id)
+        ).scalar_one_or_none()
 
-        # 3. Rule-based ML Logic
-        # Risk Score Formula: base = exposure * 0.6, age * 0.2, disease (+15 if asthma, +10 if heart)
-        base_score = exposure_score * 0.6
-        age_factor = profile.age * 0.2
-        disease_factor = (15 if profile.asthma else 0) + (10 if profile.heart_disease else 0)
-        
-        risk_score = min(100.0, base_score + age_factor + disease_factor)
+        now = datetime.now(timezone.utc)
+        since = now - timedelta(hours=24)
+        logs = db.execute(
+            select(UserLog)
+            .where(UserLog.user_id == user_id)
+            .where(UserLog.timestamp >= since)
+            .order_by(UserLog.timestamp.asc())
+        ).scalars().all()
 
-        # 4. Symptom Prediction
-        predicted_symptoms = []
-        short_term_warning = ""
-        long_term_warning = ""
-        recommendations = []
+        if not logs:
+            raise ValueError("No exposure logs found for the last 24 hours.")
 
-        if risk_score > 70:
-            predicted_symptoms = ["Breathing Irritation (HIGH)", "Headache (40%)", "Asthma Trigger (HIGH)"]
-            short_term_warning = "High risk of immediate respiratory distress."
-            long_term_warning = "Frequent high exposure linked to chronic lung inflammation."
-            recommendations = ["Avoid all outdoor activity", "Use N95 mask indoors if needed", "Keep inhaler ready"]
-        elif 40 <= risk_score <= 70:
-            predicted_symptoms = ["Mild Throat Irritation", "Fatigue (20%)"]
-            short_term_warning = "Moderate exposure detected. Monitor for symptoms."
-            long_term_warning = "Sustained moderate exposure may impact lung capacity over years."
-            recommendations = ["Limit outdoor workout", "Use mask in high traffic zones", "Prefer metro commute"]
+        avg_pm25 = sum(float(log.pm25) for log in logs) / len(logs)
+        max_pm25 = max(float(log.pm25) for log in logs)
+        first_ts = self._as_utc(logs[0].timestamp)
+        last_ts = self._as_utc(logs[-1].timestamp)
+        exposure_duration = max(0.25, (last_ts - first_ts).total_seconds() / 3600.0)
+
+        no2 = max(5.0, min(120.0, avg_pm25 * 0.55))
+        co = max(0.2, min(15.0, avg_pm25 / 14.0))
+
+        input_data = {
+            "age": profile.age if profile else 30,
+            "pm25": avg_pm25,
+            "no2": no2,
+            "co": co,
+            "asthma": 1 if profile and profile.asthma else 0,
+            "heart_disease": 1 if profile and profile.heart_disease else 0,
+            "exposure_duration": exposure_duration,
+        }
+
+        prediction = predict_health_risk(input_data)
+        risk_category = str(prediction["risk_category"])
+
+        if risk_category == "HIGH":
+            symptoms = ["breathing issues", "asthma trigger"]
+        elif risk_category == "MEDIUM":
+            symptoms = ["irritation", "fatigue"]
         else:
-            predicted_symptoms = []
-            short_term_warning = "Safe levels currently."
-            long_term_warning = "Low risk, but prolonged exposure should always be monitored."
-            recommendations = ["Outdoor activities safe", "Standard hydration recommended"]
+            symptoms = ["safe warning"]
 
-        risk_level = "High" if risk_score > 70 else "Moderate" if risk_score >= 40 else "Low"
-
-        return HealthRiskResponse(
-            user_id=user_id,
-            risk_score=round(risk_score, 2),
-            exposure_score=round(exposure_score, 2),
-            risk_level=risk_level,
-            predicted_symptoms=predicted_symptoms,
-            short_term_warning=short_term_warning,
-            long_term_warning=long_term_warning,
-            recommendations=recommendations
+        response = HealthRiskResponse(
+            risk_score=float(prediction["risk_score"]),
+            risk_category=risk_category,
+            symptoms=symptoms,
+            probabilities=prediction["probabilities"],
+            risk_level=risk_category,
         )
+
+        self._write_cache(cache_key, response.model_dump())
+        return response
+
+    def _read_cache(self, key: str) -> dict | None:
+        try:
+            payload = self._redis.get(key)
+            if not payload:
+                return None
+            return json.loads(payload)
+        except Exception:
+            return None
+
+    def _write_cache(self, key: str, value: dict, ttl_seconds: int = 120) -> None:
+        try:
+            self._redis.setex(key, ttl_seconds, json.dumps(value))
+        except Exception:
+            return
+
+    @staticmethod
+    def _as_utc(ts: datetime) -> datetime:
+        if ts.tzinfo is None:
+            return ts.replace(tzinfo=timezone.utc)
+        return ts.astimezone(timezone.utc)

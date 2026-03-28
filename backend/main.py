@@ -13,6 +13,7 @@ from backend.services.pollution_grid_job import POLLUTION_GRID_REDIS_KEY
 from backend.services.pollution_grid_job import run_pollution_grid_updater
 from backend.modules.exposure.router import router as exposure_router
 from backend.modules.health.router import router as health_router
+from backend.modules.health.model import load_or_train_model
 
 
 @asynccontextmanager
@@ -20,6 +21,11 @@ async def lifespan(app: FastAPI):
     configure_logging()
     logger = get_logger(__name__)
     logger.info("Starting AeroGuard backend")
+    try:
+        load_or_train_model()
+        logger.info("Health ML model ready")
+    except Exception as exc:
+        logger.warning("Health ML model initialization failed: %s", exc)
     updater_task = None
     # updater_task = asyncio.create_task(run_pollution_grid_updater())
     yield
@@ -51,6 +57,8 @@ app.include_router(route_router, prefix="/api/v1")
 app.include_router(sensor_router, prefix="/api/v1")
 app.include_router(exposure_router, prefix="/api/v1")
 app.include_router(health_router, prefix="/api/v1")
+app.include_router(exposure_router, prefix="/api")
+app.include_router(health_router, prefix="/api")
 
 redis_client = get_redis_client()
 

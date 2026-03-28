@@ -41,3 +41,15 @@ class DailyExposureSummary(Base):
     exposure_score: Mapped[float] = mapped_column(Float, nullable=False)
     cigarette_equivalent: Mapped[float] = mapped_column(Float, nullable=False)
     risk_level: Mapped[str] = mapped_column(String(50), nullable=False)
+
+
+class UserLog(Base):
+    __tablename__ = "user_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
+    latitude: Mapped[Decimal] = mapped_column(Numeric(9, 6), nullable=False)
+    longitude: Mapped[Decimal] = mapped_column(Numeric(9, 6), nullable=False)
+    pm25: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    aqi: Mapped[int] = mapped_column(Integer, nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)

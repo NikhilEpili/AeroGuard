@@ -194,37 +194,33 @@ export default function HealthRiskPanel({ user, full }) {
     const base = getInsight(user?.conditions);
     if (!backendRisk) return base;
 
-    const backendLevel = backendRisk.risk_level || base.level;
+    const backendLevel = backendRisk.risk_category || backendRisk.risk_level || base.level;
     const levelPalette =
       backendLevel === "Low"
         ? { levelColor: "#10B981", levelBg: "#ECFDF5" }
         : backendLevel === "Moderate"
-        ? { levelColor: "#F59E0B", levelBg: "#FFFBEB" }
-        : backendLevel === "Extreme"
-        ? { levelColor: "#DC2626", levelBg: "#FFF1F2" }
-        : { levelColor: "#EF4444", levelBg: "#FEF2F2" };
+          ? { levelColor: "#F59E0B", levelBg: "#FFFBEB" }
+          : backendLevel === "Extreme"
+            ? { levelColor: "#DC2626", levelBg: "#FFF1F2" }
+            : { levelColor: "#EF4444", levelBg: "#FEF2F2" };
 
     return {
       ...base,
       title: `${backendLevel} Health Risk`,
-      text: [backendRisk.short_term_warning, backendRisk.long_term_warning]
-        .filter(Boolean)
-        .join(" "),
+      text: `ML prediction based on latest exposure and profile data.`,
       riskScore: Number(backendRisk.risk_score ?? base.riskScore),
       level: backendLevel,
       levelColor: levelPalette.levelColor,
       levelBg: levelPalette.levelBg,
       symptoms:
-        backendRisk.predicted_symptoms?.length > 0
-          ? backendRisk.predicted_symptoms.map((symptom, i) => ({
-              name: symptom.replace(/\s*\([^)]*\)/g, ""),
-              probability: ["65%", "50%", "40%", "30%"][i] || "25%",
-            }))
+        backendRisk.symptoms?.length > 0
+          ? backendRisk.symptoms.map((symptom, i) => ({
+            name: symptom.replace(/\s*\([^)]*\)/g, ""),
+            probability: ["65%", "50%", "40%", "30%"][i] || "25%",
+          }))
           : base.symptoms,
       actions:
-        backendRisk.recommendations?.length > 0
-          ? backendRisk.recommendations
-          : base.actions,
+        base.actions,
     };
   }, [backendRisk, user?.conditions]);
 
