@@ -596,7 +596,7 @@ const SafeRouteNavigator = ({ user }) => {
           exit={{ opacity: 0, y: -20 }}
           className="bg-white rounded-2xl shadow-card border border-gray-100 p-6"
         >
-          <div className="grid grid-cols-3 gap-6 items-start mb-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start mb-6">
             {/* Route Details */}
             <div>
               <h4 className="font-bold text-gray-900 text-lg mb-2">
@@ -676,7 +676,7 @@ const SafeRouteNavigator = ({ user }) => {
               <FiWind className="w-4 h-4 text-primary" />
               Air Quality by Zone
             </h5>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               {route.zones.map((zone, i) => (
                 <motion.div
                   key={i}

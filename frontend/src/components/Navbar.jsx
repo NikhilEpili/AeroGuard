@@ -99,7 +99,7 @@ export default function Navbar({ user }) {
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 8, scale: 0.95 }}
                 transition={{ duration: 0.15 }}
-                className="absolute right-0 top-12 w-80 bg-white rounded-2xl shadow-card-md border border-gray-100 overflow-hidden z-50"
+                className="fixed left-4 right-4 top-16 md:absolute md:left-auto md:right-0 md:top-12 md:w-80 bg-white rounded-2xl shadow-card-md border border-gray-100 overflow-hidden z-50 origin-top md:origin-top-right"
               >
                 <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
                   <h3 className="font-bold text-gray-900 text-sm">

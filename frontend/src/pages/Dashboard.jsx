@@ -213,11 +213,11 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="flex min-h-screen bg-surface">
+    <div className="flex min-h-screen bg-surface flex-col md:flex-row pb-20 md:pb-0 relative">
       <Sidebar activeView={activeView} setActiveView={setActiveView} />
-      <div className="flex-1 flex flex-col min-w-0 ml-[240px]">
+      <div className="flex-1 flex flex-col min-w-0 md:ml-[240px] w-full">
         <Navbar user={user} />
-        <main className="flex-1 px-6 py-5 overflow-auto">
+        <main className="flex-1 px-4 md:px-6 py-4 md:py-5 overflow-x-hidden overflow-y-auto">
           <div className="max-w-6xl mx-auto space-y-6">
             <AnimatePresence mode="wait">{renderContent()}</AnimatePresence>
           </div>

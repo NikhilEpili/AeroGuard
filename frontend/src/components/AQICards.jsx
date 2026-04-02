@@ -226,7 +226,7 @@ export default function AQICards({ user }) {
               </p>
             </div>
 
-            <div className="mt-3 pt-3 border-t border-gray-100 flex items-center gap-1.5 justify-between">
+            <div className="mt-3 pt-3 border-t border-gray-100 flex flex-wrap items-center gap-1.5 justify-between">
               <div className="flex items-center gap-1.5">
                 {card.changeUp ? (
                   <FiArrowUp className="text-red-500 text-xs" />
