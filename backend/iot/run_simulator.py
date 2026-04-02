@@ -8,6 +8,7 @@ Environment variables (all optional):
 """
 from __future__ import annotations
 
+import asyncio
 import os
 
 from backend.iot.sensor_simulator import start_sensor_simulation
@@ -24,11 +25,18 @@ def main() -> None:
         flush=True,
     )
 
-    start_sensor_simulation(
-        backend_base_url=backend_base_url,
-        interval_seconds=interval_seconds,
-        sensor_count=sensor_count,
-    )
+    loop = asyncio.new_event_loop()
+    try:
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(
+            start_sensor_simulation(
+                backend_base_url=backend_base_url,
+                interval_seconds=interval_seconds,
+                sensor_count=sensor_count,
+            )
+        )
+    finally:
+        loop.close()
 
 
 if __name__ == "__main__":

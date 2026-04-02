@@ -14,6 +14,17 @@ from backend.routing.pollution_cost import PollutionCostCalculator
 from backend.utils.geo_utils import compute_distance_km, midpoint
 
 
+AQI_BREAKPOINTS_PM25 = [
+    (0.0, 12.0, 0, 50),
+    (12.1, 35.4, 51, 100),
+    (35.5, 55.4, 101, 150),
+    (55.5, 150.4, 151, 200),
+    (150.5, 250.4, 201, 300),
+    (250.5, 350.4, 301, 400),
+    (350.5, 500.4, 401, 500),
+]
+
+
 class PollutionService:
     def __init__(self) -> None:
         self.settings = get_settings()
@@ -446,15 +457,11 @@ class PollutionService:
 
     @staticmethod
     def pm25_to_aqi(pm25: float) -> int:
-        if pm25 <= 12.0:
-            return int((50 / 12.0) * pm25)
-        if pm25 <= 35.4:
-            return int(((100 - 51) / (35.4 - 12.1)) * (pm25 - 12.1) + 51)
-        if pm25 <= 55.4:
-            return int(((150 - 101) / (55.4 - 35.5)) * (pm25 - 35.5) + 101)
-        if pm25 <= 150.4:
-            return int(((200 - 151) / (150.4 - 55.5)) * (pm25 - 55.5) + 151)
-        return int(min(500, ((300 - 201) / (250.4 - 150.5)) * (pm25 - 150.5) + 201))
+        clamped_pm25 = max(0.0, float(pm25))
+        for c_low, c_high, i_low, i_high in AQI_BREAKPOINTS_PM25:
+            if c_low <= clamped_pm25 <= c_high:
+                return int(((i_high - i_low) / (c_high - c_low)) * (clamped_pm25 - c_low) + i_low)
+        return 500
 
     @staticmethod
     def aqi_risk_level(aqi: float) -> str:
