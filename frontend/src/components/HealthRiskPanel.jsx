@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { motion } from "framer-motion";
 import { FiShield, FiAlertTriangle, FiCheckCircle, FiInfo, FiTrendingUp, FiActivity } from "react-icons/fi";
-import { getHealthRisk } from "../services/aeroguardApi";
+import { useHealthRisk } from "../hooks/useHealthRisk";
 import { resolveUserId } from "../services/userProfile";
 
 const getInsight = (conditions) => {
@@ -168,27 +168,8 @@ const CircularProgress = ({ score, color }) => {
 };
 
 export default function HealthRiskPanel({ user, full }) {
-  const [backendRisk, setBackendRisk] = useState(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const load = async () => {
-      try {
-        const risk = await getHealthRisk(resolveUserId(user));
-        if (!cancelled) {
-          setBackendRisk(risk);
-        }
-      } catch (error) {
-        console.warn("Health risk fetch failed", error);
-      }
-    };
-
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [user]);
+  const userId = useMemo(() => resolveUserId(user), [user]);
+  const { data: backendRisk } = useHealthRisk(userId);
 
   const insight = useMemo(() => {
     const base = getInsight(user?.conditions);

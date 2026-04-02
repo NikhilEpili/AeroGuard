@@ -10,10 +10,10 @@ import {
 } from "react-icons/fi";
 import {
   getExposureReport,
-  getHealthRisk,
   predictPollution,
 } from "../services/aeroguardApi";
 import { geocodeLocation } from "../services/geocoding";
+import { useHealthRisk } from "../hooks/useHealthRisk";
 import { resolveUserId } from "../services/userProfile";
 
 const RISK_COLORS = {
@@ -51,12 +51,12 @@ const itemVariants = {
 };
 
 export default function AQICards({ user }) {
+  const userId = useMemo(() => resolveUserId(user), [user]);
+  const { data: healthRisk } = useHealthRisk(userId);
+
   const [metrics, setMetrics] = useState({
     aqi: 87,
-    riskScore: 72,
-    riskLevel: "High",
     exposureScore: 34.2,
-    alerts: 3,
     futureAqi: 95,
   });
 
@@ -65,11 +65,9 @@ export default function AQICards({ user }) {
 
     const load = async () => {
       try {
-        const userId = resolveUserId(user);
         const coords = user?.coords || (await geocodeLocation(user?.location));
 
-        const [risk, summary, prediction] = await Promise.allSettled([
-          getHealthRisk(userId),
+        const [summary, prediction] = await Promise.allSettled([
           getExposureReport(userId),
           coords
             ? predictPollution({ lat: coords[0], lon: coords[1] })
@@ -78,30 +76,17 @@ export default function AQICards({ user }) {
 
         if (cancelled) return;
 
-        const riskValue = risk.status === "fulfilled" ? risk.value : null;
         const summaryValue = summary.status === "fulfilled" ? summary.value : null;
         const predictionValue = prediction.status === "fulfilled" ? prediction.value : null;
 
-        const aqi = Number(predictionValue?.current_aqi || metrics.aqi);
+        const aqi = Number(predictionValue?.current_aqi || 87);
         const futureAqi = Number(predictionValue?.aqi_next_30_min || aqi);
-        const riskScore = Number(riskValue?.risk_score || metrics.riskScore);
-        const exposureScore = Number(summaryValue?.exposure_score || metrics.exposureScore);
-        const riskLevel = riskValue?.risk_level || metrics.riskLevel;
-
-        const alerts = [
-          aqi > 100,
-          futureAqi > aqi + 10,
-          riskScore >= 70,
-          exposureScore >= 50,
-        ].filter(Boolean).length;
+        const exposureScore = Number(summaryValue?.exposure_score || 34.2);
 
         setMetrics({
           aqi,
           futureAqi,
-          riskScore,
-          riskLevel,
           exposureScore,
-          alerts,
         });
       } catch (error) {
         console.warn("Failed to load dashboard cards", error);
@@ -112,11 +97,21 @@ export default function AQICards({ user }) {
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [user, userId]);
+
+  const riskScore = Number(healthRisk?.risk_score || 72);
+  const riskLevel = healthRisk?.risk_category || healthRisk?.risk_level || "High";
+
+  const alerts = [
+    metrics.aqi > 100,
+    metrics.futureAqi > metrics.aqi + 10,
+    riskScore >= 70,
+    metrics.exposureScore >= 50,
+  ].filter(Boolean).length;
 
   const cards = useMemo(() => {
     const aqiColors = AQI_COLORS(metrics.aqi);
-    const riskColors = RISK_COLORS[metrics.riskLevel] || RISK_COLORS.Moderate;
+    const riskColors = RISK_COLORS[riskLevel] || RISK_COLORS.Moderate;
 
     return [
       {
@@ -135,13 +130,13 @@ export default function AQICards({ user }) {
       },
       {
         title: "Health Risk Score",
-        value: Math.round(metrics.riskScore),
+        value: Math.round(riskScore),
         unit: "/100",
-        label: `${metrics.riskLevel} risk`,
+        label: `${riskLevel} risk`,
         labelColor: riskColors.labelColor,
         labelBg: riskColors.labelBg,
         change: "Personalized by profile + exposure",
-        changeUp: metrics.riskScore >= 70,
+        changeUp: riskScore >= 70,
         icon: FiActivity,
         iconBg: "#FEF2F2",
         iconColor: "#DC2626",
@@ -163,12 +158,12 @@ export default function AQICards({ user }) {
       },
       {
         title: "Active Alerts",
-        value: metrics.alerts,
+        value: alerts,
         unit: "alerts",
-        label: metrics.alerts > 0 ? "Action needed" : "Stable",
-        labelColor: metrics.alerts > 0 ? "#1D4ED8" : "#10B981",
-        labelBg: metrics.alerts > 0 ? "#E5EDFF" : "#ECFDF5",
-        change: `${metrics.alerts} backend-derived triggers`,
+        label: alerts > 0 ? "Action needed" : "Stable",
+        labelColor: alerts > 0 ? "#1D4ED8" : "#10B981",
+        labelBg: alerts > 0 ? "#E5EDFF" : "#ECFDF5",
+        change: `${alerts} backend-derived triggers`,
         changeUp: false,
         icon: FiAlertTriangle,
         iconBg: "#EEF2FF",
@@ -176,7 +171,7 @@ export default function AQICards({ user }) {
         desc: "AQI, risk, and exposure",
       },
     ];
-  }, [metrics]);
+  }, [alerts, metrics, riskLevel, riskScore]);
 
   return (
     <motion.div

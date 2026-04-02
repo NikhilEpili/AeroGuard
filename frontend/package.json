@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.90.2",
     "framer-motion": "^11.18.2",
     "leaflet": "^1.9.4",
     "react": "^18.2.0",
