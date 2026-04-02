@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from backend.cache.redis_client import get_sync_redis_client
 from backend.modules.exposure.models import UserHealthProfile, UserLog
+from backend.services.pollution_service import PollutionService
 
 
 class ExposureService:
@@ -32,7 +33,7 @@ class ExposureService:
     def create_user_log(self, db: Session, user_id: int, latitude: Decimal, longitude: Decimal, timestamp: datetime) -> UserLog:
         pm25_int = random.randint(40, 120)
         pm25 = Decimal(str(pm25_int))
-        aqi = int(pm25_int * 2)
+        aqi = PollutionService.pm25_to_aqi(float(pm25))
 
         new_log = UserLog(
             user_id=user_id,
