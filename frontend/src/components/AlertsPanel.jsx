@@ -15,6 +15,7 @@ import {
 import { geocodeLocation } from "../services/geocoding";
 import { useHealthRisk } from "../hooks/useHealthRisk";
 import { resolveUserId } from "../services/userProfile";
+import { Skeleton, SkeletonText } from "./Skeleton";
 
 const ALL_ALERTS = [
   {
@@ -99,8 +100,7 @@ const SEVERITY_CONFIG = {
 };
 
 export default function AlertsPanel({ compact, user }) {
-  const userId = useMemo(() => resolveUserId(user), [user]);
-  const { data: healthRisk } = useHealthRisk(userId);
+  const [loading, setLoading] = useState(true);
   const [dismissed, setDismissed] = useState([]);
   const [filter, setFilter] = useState("All");
   const [dynamicInputs, setDynamicInputs] = useState({
@@ -113,6 +113,8 @@ export default function AlertsPanel({ compact, user }) {
 
     const load = async () => {
       try {
+        setLoading(true);
+        const userId = resolveUserId(user);
         const coords = user?.coords || (await geocodeLocation(user?.location));
 
         const [summaryResult, predictionResult] = await Promise.allSettled([
@@ -129,6 +131,10 @@ export default function AlertsPanel({ compact, user }) {
         setDynamicInputs({ summary, prediction });
       } catch (error) {
         console.warn("Failed to generate dynamic alerts", error);
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     };
 
@@ -199,6 +205,43 @@ export default function AlertsPanel({ compact, user }) {
   );
 
   const displayAlerts = compact ? filteredAlerts.slice(0, 3) : filteredAlerts;
+
+  if (loading) {
+    return (
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <div className="space-y-2">
+            <Skeleton className="h-5 w-36" />
+            <Skeleton className="h-3 w-28" />
+          </div>
+          {!compact && <Skeleton className="h-8 w-72 rounded-full" />}
+        </div>
+        <div className="space-y-3">
+          {Array.from({ length: compact ? 3 : 4 }).map((_, i) => (
+            <div
+              key={i}
+              className="bg-white rounded-2xl shadow-card border border-gray-100 p-4"
+            >
+              <div className="flex items-start gap-3">
+                <Skeleton className="w-10 h-10 rounded-xl" />
+                <div className="flex-1 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <Skeleton className="h-4 w-40" />
+                    <Skeleton className="h-5 w-14 rounded-full" />
+                  </div>
+                  <SkeletonText lines={2} lineClassName="h-3" />
+                  <div className="flex gap-3 pt-1">
+                    <Skeleton className="h-3 w-20" />
+                    <Skeleton className="h-3 w-28" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
