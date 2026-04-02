@@ -1,19 +1,21 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, lazy, Suspense } from "react";
 import { useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import Sidebar from "../components/Sidebar";
 import Navbar from "../components/Navbar";
-import AQICards from "../components/AQICards";
-import PollutionStats from "../components/PollutionStats";
-import HealthRiskPanel from "../components/HealthRiskPanel";
-import AlertsPanel from "../components/AlertsPanel";
-import Charts from "../components/Charts";
-import ExposureTracker from "../components/ExposureTracker";
-import SafeRouteNavigator from "../components/SafeRouteNavigator";
-import SchoolSafetyMode from "../components/SchoolSafetyMode";
-import HyperlocalMap from "../components/HyperlocalMap";
-import RouteNavigator from "./RouteNavigator";
-import Alerts from "./Alerts";
+import Loader from "../components/common/Loader";
+
+const AQICards = lazy(() => import("../components/AQICards"));
+const PollutionStats = lazy(() => import("../components/PollutionStats"));
+const HealthRiskPanel = lazy(() => import("../components/HealthRiskPanel"));
+const AlertsPanel = lazy(() => import("../components/AlertsPanel"));
+const Charts = lazy(() => import("../components/Charts"));
+const ExposureTracker = lazy(() => import("../components/ExposureTracker"));
+const SafeRouteNavigator = lazy(() => import("../components/SafeRouteNavigator"));
+const SchoolSafetyMode = lazy(() => import("../components/SchoolSafetyMode"));
+const HyperlocalMap = lazy(() => import("../components/HyperlocalMap"));
+const RouteNavigator = lazy(() => import("./RouteNavigator"));
+const Alerts = lazy(() => import("./Alerts"));
 
 const pageVariants = {
   initial: { opacity: 0, y: 16 },
@@ -80,6 +82,7 @@ const SettingsView = ({ user }) => (
 export default function Dashboard() {
   const navigate = useNavigate();
   const [activeView, setActiveView] = useState("overview");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [user, setUser] = useState(null);
 
   useEffect(() => {
@@ -213,13 +216,28 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="flex min-h-screen bg-surface flex-col md:flex-row pb-20 md:pb-0 relative">
-      <Sidebar activeView={activeView} setActiveView={setActiveView} />
+    <div className="flex min-h-screen bg-surface flex-col md:flex-row relative">
+      {sidebarOpen && (
+        <button
+          type="button"
+          aria-label="Close sidebar"
+          onClick={() => setSidebarOpen(false)}
+          className="fixed inset-0 bg-black/30 z-40 md:hidden"
+        />
+      )}
+      <Sidebar
+        activeView={activeView}
+        setActiveView={setActiveView}
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+      />
       <div className="flex-1 flex flex-col min-w-0 md:ml-[240px] w-full">
-        <Navbar user={user} />
+        <Navbar user={user} onMenuToggle={() => setSidebarOpen((v) => !v)} />
         <main className="flex-1 px-4 md:px-6 py-4 md:py-5 overflow-x-hidden overflow-y-auto">
           <div className="max-w-6xl mx-auto space-y-6">
-            <AnimatePresence mode="wait">{renderContent()}</AnimatePresence>
+            <Suspense fallback={<Loader label="Loading dashboard module..." />}>
+              <AnimatePresence mode="wait">{renderContent()}</AnimatePresence>
+            </Suspense>
           </div>
         </main>
       </div>

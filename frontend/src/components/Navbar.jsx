@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { FiBell, FiUser, FiChevronDown, FiX } from "react-icons/fi";
+import { FiBell, FiUser, FiChevronDown, FiX, FiMenu } from "react-icons/fi";
 
 const NOTIFICATIONS = [
   {
@@ -37,14 +37,24 @@ const NOTIFICATIONS = [
   },
 ];
 
-export default function Navbar({ user }) {
+export default function Navbar({ user, onMenuToggle }) {
   const [showNotifs, setShowNotifs] = useState(false);
   const unreadCount = NOTIFICATIONS.filter((n) => n.unread).length;
 
   return (
     <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-sm border-b border-gray-100 px-6 py-3.5 flex items-center justify-between">
       {/* Left: Title & breadcrumb */}
-      <div>
+      <div className="flex items-start gap-3">
+        <button
+          type="button"
+          onClick={onMenuToggle}
+          className="md:hidden w-10 h-10 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-700 transition-colors"
+          aria-label="Toggle sidebar"
+        >
+          <FiMenu className="text-lg" />
+        </button>
+
+        <div>
         <div className="flex items-center gap-2">
           <h2 className="text-lg font-bold text-gray-900">
             Good{" "}
@@ -65,6 +75,7 @@ export default function Navbar({ user }) {
           })}{" "}
           · {user?.location || "Location"}
         </p>
+        </div>
       </div>
 
       {/* Right: Actions */}

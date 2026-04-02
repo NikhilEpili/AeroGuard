@@ -32,7 +32,7 @@ const BOTTOM_ITEMS = [
   { id: "settings", icon: FiSettings, label: "Settings" },
 ];
 
-export default function Sidebar({ activeView, setActiveView }) {
+export default function Sidebar({ activeView, setActiveView, open, onClose }) {
   const navigate = useNavigate();
   const [hoveredItem, setHoveredItem] = useState(null);
 
@@ -46,7 +46,9 @@ export default function Sidebar({ activeView, setActiveView }) {
       initial={{ x: -240 }}
       animate={{ x: 0 }}
       transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-      className="fixed bottom-0 md:top-0 left-0 w-full md:w-[240px] md:h-screen h-[70px] bg-white/95 border-t md:border-t-0 md:border-r border-gray-100 flex md:flex-col z-50 overflow-x-auto md:overflow-visible"
+      className={`fixed top-0 left-0 h-screen w-[240px] bg-white/95 border-r border-gray-100 flex flex-col z-50 transition-transform duration-300 ease-out ${
+        open ? "translate-x-0" : "-translate-x-full"
+      } md:translate-x-0`}
     >
       {/* Logo */}
       <div className="hidden md:flex items-center gap-3 px-5 py-5 border-b border-gray-100">
@@ -74,45 +76,45 @@ export default function Sidebar({ activeView, setActiveView }) {
       </div>
 
       {/* Nav items */}
-      <nav className="flex-1 md:px-3 md:py-2 md:overflow-y-auto flex flex-row md:flex-col overflow-x-auto md:overflow-visible px-2 py-1 gap-1 md:gap-0 items-center md:items-stretch hide-scrollbar">
-        <p className="hidden md:block text-[10px] font-bold text-gray-400 uppercase tracking-widest px-3 mb-2">
+      <nav className="flex-1 px-3 py-2 overflow-y-auto">
+        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-3 mb-2">
           Navigation
         </p>
-        <div className="flex flex-row md:flex-col gap-1 md:gap-0.5 md:space-y-0.5 w-full h-full md:h-auto items-center md:items-stretch">
+        <div className="flex flex-col gap-0.5 space-y-0.5 w-full items-stretch">
           {NAV_ITEMS.map((item) => {
             const Icon = item.icon;
             const isActive = activeView === item.id;
             return (
               <motion.button
                 key={item.id}
-                onClick={() => setActiveView(item.id)}
+                onClick={() => {
+                  setActiveView(item.id);
+                  onClose?.();
+                }}
                 onHoverStart={() => setHoveredItem(item.id)}
                 onHoverEnd={() => setHoveredItem(null)}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.95 }}
-                className={`flex-shrink-0 md:w-full h-full md:h-auto flex flex-col md:flex-row items-center justify-center md:justify-start gap-1 md:gap-3 px-3 py-1.5 md:py-2.5 rounded-xl text-center md:text-left transition-all duration-150 ${
+                className={`relative flex-shrink-0 w-full h-auto flex flex-row items-center justify-start gap-3 px-3 py-2.5 rounded-xl text-left transition-all duration-150 ${
                   isActive
-                    ? "text-primary md:bg-primary/10"
-                    : "text-gray-400 md:text-gray-500 md:hover:bg-gray-50 hover:text-gray-900"
+                    ? "text-primary bg-primary/10"
+                    : "text-gray-500 hover:bg-gray-50 hover:text-gray-900"
                 }`}
               >
                 <div
-                  className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-150 ${
+                  className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-150 flex-shrink-0 ${
                     isActive
                       ? "bg-primary text-white shadow-sm"
-                      : "bg-transparent md:bg-gray-100 text-gray-400"
+                      : "bg-gray-100 text-gray-400"
                   }`}
                 >
-                  <Icon className="text-xl md:text-sm" />
+                  <Icon className="text-sm" />
                 </div>
-                <span className={`text-[10px] md:text-sm font-semibold whitespace-nowrap mt-0.5 md:mt-0 ${isActive ? "text-primary" : "text-gray-500"}`}>{item.label}</span>
+                <span className={`text-sm font-semibold whitespace-nowrap ${isActive ? "text-primary" : "text-gray-500"}`}>{item.label}</span>
                 {item.id === "alerts" && (
-                  <span className="hidden md:inline-block ml-auto bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                  <span className="inline-block ml-auto bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
                     3
                   </span>
-                )}
-                {item.id === "alerts" && (
-                  <span className="md:hidden absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full" />
                 )}
               </motion.button>
             );
@@ -121,14 +123,17 @@ export default function Sidebar({ activeView, setActiveView }) {
       </nav>
 
       {/* Bottom items */}
-      <div className="hidden md:block px-3 py-3 border-t border-gray-100 space-y-0.5">
+      <div className="px-3 py-3 border-t border-gray-100 space-y-0.5">
         {BOTTOM_ITEMS.map((item) => {
           const Icon = item.icon;
           const isActive = activeView === item.id;
           return (
             <motion.button
               key={item.id}
-              onClick={() => setActiveView(item.id)}
+              onClick={() => {
+                setActiveView(item.id);
+                onClose?.();
+              }}
               whileHover={{ x: 2 }}
               whileTap={{ scale: 0.98 }}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all duration-150 ${
