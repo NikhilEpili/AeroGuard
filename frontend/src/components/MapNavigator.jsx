@@ -38,6 +38,154 @@ const LEVEL_COLORS = {
   low: { color: "#10B981", fill: "#10B981", opacity: 0.14 },
 };
 
+const ROUTE_ALIASES = {
+  fastest: ["fastest"],
+  balanced: ["balanced"],
+  safe: ["safe", "cleanest", "safest"],
+};
+
+const isFiniteNumber = (value) => Number.isFinite(value);
+
+const normalizeCoordinatePair = (first, second) => {
+  const a = Number(first);
+  const b = Number(second);
+  if (!isFiniteNumber(a) || !isFiniteNumber(b)) return null;
+
+  if (Math.abs(a) <= 180 && Math.abs(b) <= 90) {
+    return [b, a];
+  }
+
+  if (Math.abs(a) <= 90 && Math.abs(b) <= 180) {
+    return [a, b];
+  }
+
+  return null;
+};
+
+const extractPoint = (point) => {
+  if (Array.isArray(point) && point.length >= 2) {
+    return normalizeCoordinatePair(point[0], point[1]);
+  }
+
+  if (point && typeof point === "object") {
+    const lat = point.lat ?? point.latitude;
+    const lng = point.lng ?? point.lon ?? point.longitude;
+    if (lat != null && lng != null) {
+      return normalizeCoordinatePair(lat, lng);
+    }
+  }
+
+  return null;
+};
+
+const geometrySnippet = (geometry) => {
+  try {
+    return JSON.stringify(geometry).slice(0, 220);
+  } catch {
+    return String(geometry).slice(0, 220);
+  }
+};
+
+const pointDistanceScore = (a, b) => {
+  if (!Array.isArray(a) || !Array.isArray(b)) return Number.POSITIVE_INFINITY;
+  const latDiff = a[0] - b[0];
+  const lngDiff = a[1] - b[1];
+  return (latDiff * latDiff) + (lngDiff * lngDiff);
+};
+
+const orientationScore = (points, start, end) => {
+  if (!Array.isArray(points) || points.length < 2) return Number.POSITIVE_INFINITY;
+  const first = points[0];
+  const last = points[points.length - 1];
+  const forward = pointDistanceScore(first, start) + pointDistanceScore(last, end);
+  const reverse = pointDistanceScore(first, end) + pointDistanceScore(last, start);
+  return Math.min(forward, reverse);
+};
+
+const alignPointsToEndpoints = (points, start, end) => {
+  if (!Array.isArray(points) || points.length < 2 || !start || !end) {
+    return points;
+  }
+
+  const swapped = points.map(([lat, lng]) => [lng, lat]);
+  const asIsScore = orientationScore(points, start, end);
+  const swappedScore = orientationScore(swapped, start, end);
+
+  return swappedScore + 1e-8 < asIsScore ? swapped : points;
+};
+
+const normalizeGeometryToLeaflet = ({ geometry, routeType, routeId }) => {
+  if (!geometry) return [];
+
+  const rawPoints =
+    geometry?.type === "LineString" && Array.isArray(geometry?.coordinates)
+      ? geometry.coordinates
+      : Array.isArray(geometry)
+      ? geometry
+      : Array.isArray(geometry?.coordinates)
+      ? geometry.coordinates
+      : null;
+
+  if (!rawPoints) {
+    console.warn("Route geometry normalization failed: unsupported shape", {
+      routeType,
+      routeId,
+      snippet: geometrySnippet(geometry),
+    });
+    return [];
+  }
+
+  const normalized = rawPoints
+    .map((point) => extractPoint(point))
+    .filter((point) => Array.isArray(point));
+
+  if (normalized.length < 2 && rawPoints.length > 0) {
+    console.warn("Route geometry normalization failed: insufficient valid points", {
+      routeType,
+      routeId,
+      validPoints: normalized.length,
+      totalPoints: rawPoints.length,
+      snippet: geometrySnippet(rawPoints),
+    });
+  }
+
+  return normalized;
+};
+
+const findRoutePayloadForType = (payload, routeType) => {
+  const aliases = ROUTE_ALIASES[routeType] || [routeType];
+
+  for (const alias of aliases) {
+    const direct = payload?.[`${alias}_route`];
+    if (direct && typeof direct === "object") {
+      return direct;
+    }
+  }
+
+  const routeList = Array.isArray(payload?.routes) ? payload.routes : [];
+  const fromList = routeList.find((candidate) => {
+    const candidateType = String(candidate?.route_type || candidate?.strategy || "").toLowerCase();
+    return aliases.includes(candidateType);
+  });
+  if (fromList) {
+    return fromList;
+  }
+
+  if (routeType === "safe" && payload?.route && typeof payload.route === "object") {
+    return payload.route;
+  }
+
+  return null;
+};
+
+const routeToLeafletPositions = (routePayload, routeType, start, end) => {
+  if (!routePayload || typeof routePayload !== "object") return [];
+  const routeId = routePayload.route_id || routePayload.id || "unknown";
+  const geometry = routePayload.geometry ?? routePayload.coordinates ?? routePayload;
+  const normalized = normalizeGeometryToLeaflet({ geometry, routeType, routeId });
+  return alignPointsToEndpoints(normalized, start, end);
+};
+
 function FitBounds({ route }) {
   const map = useMap();
 
@@ -173,27 +321,40 @@ export default function MapNavigator({ user }) {
           usePredictedPollution: true,
         });
 
-        const backendRoute = routePayload?.route?.geometry?.map((point) => [point.lat, point.lng]);
-        const routeGeometry = backendRoute?.length ? backendRoute : [start, end];
-        setRoute(routeGeometry);
+        const options = ["fastest", "balanced", "safe"]
+          .map((type) => {
+            const candidate = findRoutePayloadForType(routePayload, type);
+            return {
+              id: type,
+              type,
+              positions: routeToLeafletPositions(candidate, type, start, end),
+            };
+          })
+          .filter((opt) => opt.positions.length > 1);
 
-        const options = [
-          {
-            id: "fastest",
-            type: "fastest",
-            positions: (routePayload?.fastest_route?.geometry || []).map((point) => [point.lat, point.lng]),
-          },
-          {
-            id: "balanced",
-            type: "balanced",
-            positions: (routePayload?.balanced_route?.geometry || []).map((point) => [point.lat, point.lng]),
-          },
-          {
-            id: "safe",
-            type: "safe",
-            positions: (routePayload?.safe_route?.geometry || []).map((point) => [point.lat, point.lng]),
-          },
-        ].filter((opt) => opt.positions.length > 1);
+        const selectedCandidate = findRoutePayloadForType(routePayload, selectedRouteType);
+        const primaryCandidate =
+          selectedCandidate || findRoutePayloadForType(routePayload, "safe") || routePayload?.route;
+        const primaryPositions = routeToLeafletPositions(primaryCandidate, selectedRouteType, start, end);
+
+        if (primaryPositions.length > 1) {
+          setRoute(primaryPositions);
+        } else {
+          const optionFallback =
+            options.find((option) => option.type === selectedRouteType) ||
+            options.find((option) => option.type === "safe") ||
+            options[0];
+
+          if (optionFallback?.positions?.length > 1) {
+            setRoute(optionFallback.positions);
+          } else {
+            console.warn("No valid route geometry returned; using straight-line fallback", {
+              routeType: selectedRouteType,
+              payloadKeys: Object.keys(routePayload || {}),
+            });
+            setRoute([start, end]);
+          }
+        }
 
         setRouteOptions(options);
         if (options.some((option) => option.type === "safe")) {
@@ -201,7 +362,21 @@ export default function MapNavigator({ user }) {
         } else if (options.length > 0) {
           setSelectedRouteType(options[0].type);
         }
+      } catch (error) {
+        console.warn("Route planning failed, using fallback", error);
+        setRoute([start, end]);
+        setRouteOptions([
+          { id: "safe", type: "safe", positions: [start, end] },
+        ]);
+        setSelectedRouteType("safe");
+        setHotspots([]);
+        setTimeout(() => {
+          setSearching(false);
+        }, 1200);
+        return;
+      }
 
+      try {
         const minLat = Math.min(start[0], end[0]) - 0.015;
         const maxLat = Math.max(start[0], end[0]) + 0.015;
         const minLon = Math.min(start[1], end[1]) - 0.015;
@@ -231,12 +406,7 @@ export default function MapNavigator({ user }) {
 
         setHotspots(mappedHotspots);
       } catch (error) {
-        console.warn("Route planning failed, using fallback", error);
-        setRoute([start, end]);
-        setRouteOptions([
-          { id: "safe", type: "safe", positions: [start, end] },
-        ]);
-        setSelectedRouteType("safe");
+        console.warn("Pollution heatmap failed; keeping computed route geometry", error);
         setHotspots([]);
       }
     }

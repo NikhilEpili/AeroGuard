@@ -86,9 +86,19 @@ export default function Dashboard() {
   const [user, setUser] = useState(null);
 
   useEffect(() => {
-    const u = localStorage.getItem("aeroguard_user");
-    if (!u) navigate("/onboarding");
-    else setUser(JSON.parse(u));
+    const rawUser = localStorage.getItem("aeroguard_user");
+    if (!rawUser) {
+      navigate("/onboarding");
+      return;
+    }
+
+    try {
+      const parsedUser = JSON.parse(rawUser);
+      setUser(parsedUser);
+    } catch {
+      localStorage.removeItem("aeroguard_user");
+      navigate("/onboarding");
+    }
   }, [navigate]);
 
   if (!user) return null;

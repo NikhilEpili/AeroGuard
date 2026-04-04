@@ -52,6 +52,8 @@ const itemVariants = {
 };
 
 export default function AQICards({ user }) {
+  const userId = useMemo(() => resolveUserId(user), [user]);
+  const { data: healthRisk } = useHealthRisk(userId);
   const [loading, setLoading] = useState(true);
   const [metrics, setMetrics] = useState({
     aqi: 87,
@@ -65,7 +67,6 @@ export default function AQICards({ user }) {
     const load = async () => {
       try {
         setLoading(true);
-        const userId = resolveUserId(user);
         const coords = user?.coords || (await geocodeLocation(user?.location));
 
         const [summary, prediction] = await Promise.allSettled([
@@ -113,37 +114,6 @@ export default function AQICards({ user }) {
     riskScore >= 70,
     metrics.exposureScore >= 50,
   ].filter(Boolean).length;
-
-  if (loading) {
-    return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div
-            key={i}
-            className="bg-white rounded-2xl shadow-card border border-gray-100 p-5"
-          >
-            <div className="flex items-start justify-between mb-4">
-              <Skeleton className="w-11 h-11 rounded-xl" />
-              <Skeleton className="w-20 h-6 rounded-full" />
-            </div>
-            <div className="mb-1">
-              <div className="flex items-baseline gap-2">
-                <Skeleton className="h-9 w-20" />
-                <Skeleton className="h-4 w-12" />
-              </div>
-              <div className="mt-2">
-                <SkeletonText lines={1} lineClassName="h-4" />
-              </div>
-            </div>
-            <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between gap-3">
-              <Skeleton className="h-3 w-2/3" />
-              <Skeleton className="h-3 w-16" />
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  }
 
   const cards = useMemo(() => {
     const aqiColors = AQI_COLORS(metrics.aqi);
@@ -208,6 +178,37 @@ export default function AQICards({ user }) {
       },
     ];
   }, [alerts, metrics, riskLevel, riskScore]);
+
+  if (loading) {
+    return (
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div
+            key={i}
+            className="bg-white rounded-2xl shadow-card border border-gray-100 p-5"
+          >
+            <div className="flex items-start justify-between mb-4">
+              <Skeleton className="w-11 h-11 rounded-xl" />
+              <Skeleton className="w-20 h-6 rounded-full" />
+            </div>
+            <div className="mb-1">
+              <div className="flex items-baseline gap-2">
+                <Skeleton className="h-9 w-20" />
+                <Skeleton className="h-4 w-12" />
+              </div>
+              <div className="mt-2">
+                <SkeletonText lines={1} lineClassName="h-4" />
+              </div>
+            </div>
+            <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between gap-3">
+              <Skeleton className="h-3 w-2/3" />
+              <Skeleton className="h-3 w-16" />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <motion.div

@@ -100,6 +100,8 @@ const SEVERITY_CONFIG = {
 };
 
 export default function AlertsPanel({ compact, user }) {
+  const userId = useMemo(() => resolveUserId(user), [user]);
+  const { data: healthRisk } = useHealthRisk(userId);
   const [loading, setLoading] = useState(true);
   const [dismissed, setDismissed] = useState([]);
   const [filter, setFilter] = useState("All");
@@ -114,7 +116,6 @@ export default function AlertsPanel({ compact, user }) {
     const load = async () => {
       try {
         setLoading(true);
-        const userId = resolveUserId(user);
         const coords = user?.coords || (await geocodeLocation(user?.location));
 
         const [summaryResult, predictionResult] = await Promise.allSettled([

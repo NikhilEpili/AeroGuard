@@ -169,33 +169,8 @@ const CircularProgress = ({ score, color }) => {
 };
 
 export default function HealthRiskPanel({ user, full }) {
-  const [loading, setLoading] = useState(true);
-  const [backendRisk, setBackendRisk] = useState(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const load = async () => {
-      try {
-        setLoading(true);
-        const risk = await getHealthRisk(resolveUserId(user));
-        if (!cancelled) {
-          setBackendRisk(risk);
-        }
-      } catch (error) {
-        console.warn("Health risk fetch failed", error);
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    };
-
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [user]);
+  const userId = useMemo(() => resolveUserId(user), [user]);
+  const { data: backendRisk, isLoading: loading } = useHealthRisk(userId);
 
   const insight = useMemo(() => {
     const base = getInsight(user?.conditions);
