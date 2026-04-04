@@ -42,13 +42,9 @@ export default function Sidebar({ activeView, setActiveView, open, onClose }) {
   };
 
   return (
-    <motion.aside
-      initial={{ x: -240 }}
-      animate={{ x: 0 }}
-      transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
-      className={`fixed top-0 left-0 h-screen w-[240px] bg-white/95 border-r border-gray-100 flex flex-col z-50 transition-transform duration-300 ease-out ${
-        open ? "translate-x-0" : "-translate-x-full"
-      } md:translate-x-0`}
+    <aside
+      className={`fixed top-0 left-0 h-screen w-[240px] bg-white/95 backdrop-blur-md border-r border-gray-100 flex flex-col z-50 transition-transform duration-300 ease-out ${open ? "translate-x-0" : "-translate-x-full"
+        } md:translate-x-0`}
     >
       {/* Logo */}
       <div className="hidden md:flex items-center gap-3 px-5 py-5 border-b border-gray-100">
@@ -95,18 +91,16 @@ export default function Sidebar({ activeView, setActiveView, open, onClose }) {
                 onHoverEnd={() => setHoveredItem(null)}
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.95 }}
-                className={`relative flex-shrink-0 w-full h-auto flex flex-row items-center justify-start gap-3 px-3 py-2.5 rounded-xl text-left transition-all duration-150 ${
-                  isActive
+                className={`relative flex-shrink-0 w-full h-auto flex flex-row items-center justify-start gap-3 px-3 py-2.5 rounded-xl text-left transition-all duration-150 ${isActive
                     ? "text-primary bg-primary/10"
                     : "text-gray-500 hover:bg-gray-50 hover:text-gray-900"
-                }`}
+                  }`}
               >
                 <div
-                  className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-150 flex-shrink-0 ${
-                    isActive
+                  className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-150 flex-shrink-0 ${isActive
                       ? "bg-primary text-white shadow-sm"
                       : "bg-gray-100 text-gray-400"
-                  }`}
+                    }`}
                 >
                   <Icon className="text-sm" />
                 </div>
@@ -136,18 +130,16 @@ export default function Sidebar({ activeView, setActiveView, open, onClose }) {
               }}
               whileHover={{ x: 2 }}
               whileTap={{ scale: 0.98 }}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all duration-150 ${
-                isActive
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all duration-150 ${isActive
                   ? "bg-primary/10 text-primary"
                   : "text-gray-500 hover:bg-gray-50 hover:text-gray-900"
-              }`}
+                }`}
             >
               <div
-                className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-150 ${
-                  isActive
+                className={`w-8 h-8 rounded-lg flex items-center justify-center transition-all duration-150 ${isActive
                     ? "bg-primary text-white shadow-sm"
                     : "bg-gray-100 text-gray-400"
-                }`}
+                  }`}
               >
                 <Icon className="text-sm" />
               </div>
@@ -167,6 +159,6 @@ export default function Sidebar({ activeView, setActiveView, open, onClose }) {
           <span className="text-sm font-semibold">Logout</span>
         </motion.button>
       </div>
-    </motion.aside>
+    </aside>
   );
 }
