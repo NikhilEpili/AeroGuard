@@ -7,6 +7,7 @@ import {
   Tooltip,
 } from "recharts";
 import { getSimulatedSensorsBatch } from "../services/aeroguardApi";
+import { Skeleton, SkeletonText } from "./Skeleton";
 
 const DEFAULT_POLLUTANTS = [
   {
@@ -143,6 +144,7 @@ const GaugeChart = ({ pollutant }) => {
 };
 
 export default function PollutionStats({ full }) {
+  const [loading, setLoading] = useState(true);
   const [pollutants, setPollutants] = useState(DEFAULT_POLLUTANTS);
 
   useEffect(() => {
@@ -150,6 +152,7 @@ export default function PollutionStats({ full }) {
 
     const load = async () => {
       try {
+        setLoading(true);
         const sensors = await getSimulatedSensorsBatch();
         if (!Array.isArray(sensors) || sensors.length === 0 || cancelled) return;
 
@@ -188,6 +191,10 @@ export default function PollutionStats({ full }) {
         setPollutants(next);
       } catch (error) {
         console.warn("Failed to load pollutant stats", error);
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     };
 
@@ -196,6 +203,61 @@ export default function PollutionStats({ full }) {
       cancelled = true;
     };
   }, []);
+
+  if (loading) {
+    return (
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <div className="space-y-2">
+            <Skeleton className="h-5 w-56" />
+            <Skeleton className="h-3 w-40" />
+          </div>
+          <Skeleton className="h-8 w-20 rounded-full" />
+        </div>
+
+        <div
+          className={`grid gap-4 ${full ? "grid-cols-2 lg:grid-cols-4" : "grid-cols-2"}`}
+        >
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div
+              key={i}
+              className="bg-white rounded-2xl shadow-card border border-gray-100 p-5"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-16" />
+                  <Skeleton className="h-3 w-24" />
+                </div>
+                <Skeleton className="h-5 w-16 rounded-full" />
+              </div>
+
+              <div className="h-28 flex items-center justify-center">
+                <Skeleton className="w-28 h-28 rounded-full" />
+              </div>
+
+              <div className="mt-3 space-y-2">
+                <Skeleton className="h-2 w-full rounded-full" />
+                <SkeletonText lines={1} lineClassName="h-2" />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-4 bg-white rounded-2xl shadow-card border border-gray-100 p-4">
+          <Skeleton className="h-3 w-36 mb-3" />
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="p-2 rounded-xl bg-gray-50 border border-gray-100">
+                <Skeleton className="w-3 h-3 rounded-full mx-auto mb-2" />
+                <Skeleton className="h-3 w-14 mx-auto mb-1" />
+                <Skeleton className="h-2 w-12 mx-auto" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>

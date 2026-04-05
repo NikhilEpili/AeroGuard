@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   FiAlertTriangle,
@@ -10,11 +10,12 @@ import {
 } from "react-icons/fi";
 import {
   getExposureSummary,
-  getHealthRisk,
   predictPollution,
 } from "../services/aeroguardApi";
 import { geocodeLocation } from "../services/geocoding";
+import { useHealthRisk } from "../hooks/useHealthRisk";
 import { resolveUserId } from "../services/userProfile";
+import { Skeleton, SkeletonText } from "./Skeleton";
 
 const ALL_ALERTS = [
   {
@@ -99,20 +100,25 @@ const SEVERITY_CONFIG = {
 };
 
 export default function AlertsPanel({ compact, user }) {
+  const userId = useMemo(() => resolveUserId(user), [user]);
+  const { data: healthRisk } = useHealthRisk(userId);
+  const [loading, setLoading] = useState(true);
   const [dismissed, setDismissed] = useState([]);
   const [filter, setFilter] = useState("All");
-  const [alerts, setAlerts] = useState(ALL_ALERTS);
+  const [dynamicInputs, setDynamicInputs] = useState({
+    summary: null,
+    prediction: null,
+  });
 
   useEffect(() => {
     let cancelled = false;
 
     const load = async () => {
       try {
-        const userId = resolveUserId(user);
+        setLoading(true);
         const coords = user?.coords || (await geocodeLocation(user?.location));
 
-        const [riskResult, summaryResult, predictionResult] = await Promise.allSettled([
-          getHealthRisk(userId),
+        const [summaryResult, predictionResult] = await Promise.allSettled([
           getExposureSummary(userId),
           coords
             ? predictPollution({ lat: coords[0], lon: coords[1] })
@@ -121,60 +127,15 @@ export default function AlertsPanel({ compact, user }) {
 
         if (cancelled) return;
 
-        const risk = riskResult.status === "fulfilled" ? riskResult.value : null;
         const summary = summaryResult.status === "fulfilled" ? summaryResult.value : null;
         const prediction = predictionResult.status === "fulfilled" ? predictionResult.value : null;
-
-        const generated = [];
-
-        if (prediction?.aqi_next_30_min > prediction?.current_aqi + 10) {
-          generated.push({
-            id: 101,
-            title: "AQI Rising Rapidly",
-            msg: `Forecast shows AQI increasing from ${Math.round(prediction.current_aqi)} to ${Math.round(prediction.aqi_next_30_min)} in 30 minutes.`,
-            type: "AQI",
-            severity: prediction.aqi_next_30_min > 120 ? "High" : "Moderate",
-            time: "Just now",
-            color: prediction.aqi_next_30_min > 120 ? "#F97316" : "#F59E0B",
-            bg: prediction.aqi_next_30_min > 120 ? "#FFF7ED" : "#FFFBEB",
-            icon: FiAlertTriangle,
-            location: user?.location || "Your Area",
-          });
-        }
-
-        if (risk?.risk_score >= 70) {
-          generated.push({
-            id: 102,
-            title: "High Health Risk Warning",
-            msg: risk.short_term_warning || "Personalized health risk is elevated.",
-            type: "Health",
-            severity: "High",
-            time: "Just now",
-            color: "#F97316",
-            bg: "#FFF7ED",
-            icon: FiAlertTriangle,
-            location: user?.location || "Your Area",
-          });
-        }
-
-        if (summary?.risk_level && ["High", "Extreme"].includes(summary.risk_level)) {
-          generated.push({
-            id: 103,
-            title: "Exposure Threshold Exceeded",
-            msg: `Exposure score is ${Number(summary.exposure_score).toFixed(1)} with ${summary.risk_level.toLowerCase()} daily exposure risk.`,
-            type: "Exposure",
-            severity: summary.risk_level === "Extreme" ? "Critical" : "High",
-            time: "Just now",
-            color: summary.risk_level === "Extreme" ? "#DC2626" : "#F97316",
-            bg: summary.risk_level === "Extreme" ? "#FFF1F2" : "#FFF7ED",
-            icon: summary.risk_level === "Extreme" ? FiAlertOctagon : FiAlertTriangle,
-            location: user?.location || "Your Area",
-          });
-        }
-
-        setAlerts(generated.length > 0 ? generated : ALL_ALERTS);
+        setDynamicInputs({ summary, prediction });
       } catch (error) {
         console.warn("Failed to generate dynamic alerts", error);
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     };
 
@@ -182,7 +143,59 @@ export default function AlertsPanel({ compact, user }) {
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [user, userId]);
+
+  const alerts = useMemo(() => {
+    const generated = [];
+    const { summary, prediction } = dynamicInputs;
+
+    if (prediction?.aqi_next_30_min > prediction?.current_aqi + 10) {
+      generated.push({
+        id: 101,
+        title: "AQI Rising Rapidly",
+        msg: `Forecast shows AQI increasing from ${Math.round(prediction.current_aqi)} to ${Math.round(prediction.aqi_next_30_min)} in 30 minutes.`,
+        type: "AQI",
+        severity: prediction.aqi_next_30_min > 120 ? "High" : "Moderate",
+        time: "Just now",
+        color: prediction.aqi_next_30_min > 120 ? "#F97316" : "#F59E0B",
+        bg: prediction.aqi_next_30_min > 120 ? "#FFF7ED" : "#FFFBEB",
+        icon: FiAlertTriangle,
+        location: user?.location || "Your Area",
+      });
+    }
+
+    if (healthRisk?.risk_score >= 70) {
+      generated.push({
+        id: 102,
+        title: "High Health Risk Warning",
+        msg: healthRisk.short_term_warning || "Personalized health risk is elevated.",
+        type: "Health",
+        severity: "High",
+        time: "Just now",
+        color: "#F97316",
+        bg: "#FFF7ED",
+        icon: FiAlertTriangle,
+        location: user?.location || "Your Area",
+      });
+    }
+
+    if (summary?.risk_level && ["High", "Extreme"].includes(summary.risk_level)) {
+      generated.push({
+        id: 103,
+        title: "Exposure Threshold Exceeded",
+        msg: `Exposure score is ${Number(summary.exposure_score).toFixed(1)} with ${summary.risk_level.toLowerCase()} daily exposure risk.`,
+        type: "Exposure",
+        severity: summary.risk_level === "Extreme" ? "Critical" : "High",
+        time: "Just now",
+        color: summary.risk_level === "Extreme" ? "#DC2626" : "#F97316",
+        bg: summary.risk_level === "Extreme" ? "#FFF1F2" : "#FFF7ED",
+        icon: summary.risk_level === "Extreme" ? FiAlertOctagon : FiAlertTriangle,
+        location: user?.location || "Your Area",
+      });
+    }
+
+    return generated.length > 0 ? generated : ALL_ALERTS;
+  }, [dynamicInputs, healthRisk, user?.location]);
 
   const dismiss = (id) => setDismissed((d) => [...d, id]);
 
@@ -193,6 +206,43 @@ export default function AlertsPanel({ compact, user }) {
   );
 
   const displayAlerts = compact ? filteredAlerts.slice(0, 3) : filteredAlerts;
+
+  if (loading) {
+    return (
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <div className="space-y-2">
+            <Skeleton className="h-5 w-36" />
+            <Skeleton className="h-3 w-28" />
+          </div>
+          {!compact && <Skeleton className="h-8 w-72 rounded-full" />}
+        </div>
+        <div className="space-y-3">
+          {Array.from({ length: compact ? 3 : 4 }).map((_, i) => (
+            <div
+              key={i}
+              className="bg-white rounded-2xl shadow-card border border-gray-100 p-4"
+            >
+              <div className="flex items-start gap-3">
+                <Skeleton className="w-10 h-10 rounded-xl" />
+                <div className="flex-1 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <Skeleton className="h-4 w-40" />
+                    <Skeleton className="h-5 w-14 rounded-full" />
+                  </div>
+                  <SkeletonText lines={2} lineClassName="h-3" />
+                  <div className="flex gap-3 pt-1">
+                    <Skeleton className="h-3 w-20" />
+                    <Skeleton className="h-3 w-28" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>

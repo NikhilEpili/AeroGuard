@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { motion } from "framer-motion";
 import { FiShield, FiAlertTriangle, FiCheckCircle, FiInfo, FiTrendingUp, FiActivity } from "react-icons/fi";
-import { getHealthRisk } from "../services/aeroguardApi";
+import { useHealthRisk } from "../hooks/useHealthRisk";
 import { resolveUserId } from "../services/userProfile";
+import { Skeleton, SkeletonText } from "./Skeleton";
 
 const getInsight = (conditions) => {
   switch (conditions) {
@@ -168,27 +169,8 @@ const CircularProgress = ({ score, color }) => {
 };
 
 export default function HealthRiskPanel({ user, full }) {
-  const [backendRisk, setBackendRisk] = useState(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const load = async () => {
-      try {
-        const risk = await getHealthRisk(resolveUserId(user));
-        if (!cancelled) {
-          setBackendRisk(risk);
-        }
-      } catch (error) {
-        console.warn("Health risk fetch failed", error);
-      }
-    };
-
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [user]);
+  const userId = useMemo(() => resolveUserId(user), [user]);
+  const { data: backendRisk, isLoading: loading } = useHealthRisk(userId);
 
   const insight = useMemo(() => {
     const base = getInsight(user?.conditions);
@@ -223,6 +205,61 @@ export default function HealthRiskPanel({ user, full }) {
         base.actions,
     };
   }, [backendRisk, user?.conditions]);
+
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="space-y-2">
+            <Skeleton className="h-5 w-52" />
+            <Skeleton className="h-3 w-64" />
+          </div>
+          <Skeleton className="h-8 w-24 rounded-full" />
+        </div>
+
+        <div className="bg-white rounded-2xl shadow-card border border-gray-100 overflow-hidden">
+          <div className="px-6 py-5 bg-slate-50 border-b border-gray-100">
+            <Skeleton className="h-4 w-48 mb-2" />
+            <SkeletonText lines={2} lineClassName="h-3" />
+          </div>
+
+          <div className="p-6 space-y-6">
+            <div className="flex flex-col sm:flex-row items-center gap-8">
+              <Skeleton className="w-36 h-36 rounded-full" />
+              <div className="flex-1 w-full space-y-3">
+                <Skeleton className="h-3 w-40" />
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-4/5" />
+              </div>
+            </div>
+
+            <div className="border-t border-gray-200 pt-6 space-y-3">
+              <Skeleton className="h-3 w-36" />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="p-3 rounded-lg bg-gray-50 border border-gray-200 space-y-2">
+                    <Skeleton className="h-4 w-2/3" />
+                    <Skeleton className="h-2 w-full rounded-full" />
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="border-t border-gray-200 pt-6 space-y-3">
+              <Skeleton className="h-3 w-44" />
+              {Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="p-3 rounded-lg bg-gray-50 border border-gray-200 space-y-2">
+                  <Skeleton className="h-4 w-1/2" />
+                  <Skeleton className="h-3 w-full" />
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">

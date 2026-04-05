@@ -26,8 +26,8 @@ async def lifespan(app: FastAPI):
         logger.info("Health ML model ready")
     except Exception as exc:
         logger.warning("Health ML model initialization failed: %s", exc)
-    updater_task = None
-    # updater_task = asyncio.create_task(run_pollution_grid_updater())
+    updater_task = asyncio.create_task(run_pollution_grid_updater())
+    logger.info("Started pollution grid background updater")
     yield
     if updater_task:
         updater_task.cancel()

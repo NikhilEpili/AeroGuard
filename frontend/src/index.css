@@ -62,3 +62,23 @@ textarea:focus {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: -220% 0;
+  }
+  100% {
+    background-position: 220% 0;
+  }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    100deg,
+    rgba(148, 163, 184, 0.16) 20%,
+    rgba(148, 163, 184, 0.32) 38%,
+    rgba(148, 163, 184, 0.16) 56%
+  );
+  background-size: 220% 100%;
+  animation: skeleton-shimmer 1.35s ease-in-out infinite;
+}

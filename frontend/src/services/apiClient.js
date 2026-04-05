@@ -40,7 +40,9 @@ export const apiRequest = async (path, options = {}) => {
 
     if (!response.ok) {
       const detail = await response.text();
-      throw new Error(detail || `Request failed with status ${response.status}`);
+      const error = new Error(detail || `Request failed with status ${response.status}`);
+      error.status = response.status;
+      throw error;
     }
 
     if (response.status === 204) {

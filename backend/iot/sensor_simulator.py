@@ -107,7 +107,7 @@ class SensorSimulator:
 
                 await asyncio.sleep(interval_seconds)
 
-    def start_sensor_simulation(
+    async def start_sensor_simulation(
         self,
         *,
         backend_base_url: str = "http://localhost:8000",
@@ -121,16 +121,14 @@ class SensorSimulator:
         - `max_cycles=None` runs indefinitely
         """
         ingest_url = backend_base_url.rstrip("/") + "/api/v1/sensors/ingest"
-        asyncio.run(
-            self._run_simulation(
-                backend_ingest_url=ingest_url,
-                interval_seconds=interval_seconds,
-                max_cycles=max_cycles,
-            )
+        await self._run_simulation(
+            backend_ingest_url=ingest_url,
+            interval_seconds=interval_seconds,
+            max_cycles=max_cycles,
         )
 
 
-def start_sensor_simulation(
+async def start_sensor_simulation(
     *,
     backend_base_url: str = "http://localhost:8000",
     interval_seconds: int = 30,
@@ -139,7 +137,7 @@ def start_sensor_simulation(
     max_cycles: int | None = None,
 ) -> None:
     simulator = SensorSimulator(sensor_count=sensor_count, city_bbox=city_bbox)
-    simulator.start_sensor_simulation(
+    await simulator.start_sensor_simulation(
         backend_base_url=backend_base_url,
         interval_seconds=interval_seconds,
         max_cycles=max_cycles,

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { FiBell, FiUser, FiChevronDown, FiX } from "react-icons/fi";
+import { FiBell, FiUser, FiChevronDown, FiX, FiMenu } from "react-icons/fi";
 
 const NOTIFICATIONS = [
   {
@@ -37,14 +37,24 @@ const NOTIFICATIONS = [
   },
 ];
 
-export default function Navbar({ user }) {
+export default function Navbar({ user, onMenuToggle }) {
   const [showNotifs, setShowNotifs] = useState(false);
   const unreadCount = NOTIFICATIONS.filter((n) => n.unread).length;
 
   return (
     <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-sm border-b border-gray-100 px-6 py-3.5 flex items-center justify-between">
       {/* Left: Title & breadcrumb */}
-      <div>
+      <div className="flex items-start gap-3">
+        <button
+          type="button"
+          onClick={onMenuToggle}
+          className="md:hidden w-10 h-10 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-700 transition-colors"
+          aria-label="Toggle sidebar"
+        >
+          <FiMenu className="text-lg" />
+        </button>
+
+        <div>
         <div className="flex items-center gap-2">
           <h2 className="text-lg font-bold text-gray-900">
             Good{" "}
@@ -65,6 +75,7 @@ export default function Navbar({ user }) {
           })}{" "}
           · {user?.location || "Location"}
         </p>
+        </div>
       </div>
 
       {/* Right: Actions */}
@@ -99,7 +110,7 @@ export default function Navbar({ user }) {
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 8, scale: 0.95 }}
                 transition={{ duration: 0.15 }}
-                className="absolute right-0 top-12 w-80 bg-white rounded-2xl shadow-card-md border border-gray-100 overflow-hidden z-50"
+                className="fixed left-4 right-4 top-16 md:absolute md:left-auto md:right-0 md:top-12 md:w-80 bg-white rounded-2xl shadow-card-md border border-gray-100 overflow-hidden z-50 origin-top md:origin-top-right"
               >
                 <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
                   <h3 className="font-bold text-gray-900 text-sm">

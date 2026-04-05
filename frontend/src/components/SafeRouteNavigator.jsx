@@ -24,6 +24,74 @@ L.Icon.Default.mergeOptions({
   shadowUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.3.1/images/marker-shadow.png",
 });
 
+const isFiniteNumber = (value) => Number.isFinite(value);
+
+const normalizeCoordinatePair = (first, second) => {
+  const a = Number(first);
+  const b = Number(second);
+  if (!isFiniteNumber(a) || !isFiniteNumber(b)) return null;
+
+  if (Math.abs(a) <= 180 && Math.abs(b) <= 90) {
+    return [b, a];
+  }
+
+  if (Math.abs(a) <= 90 && Math.abs(b) <= 180) {
+    return [a, b];
+  }
+
+  return null;
+};
+
+const extractPoint = (point) => {
+  if (Array.isArray(point) && point.length >= 2) {
+    return normalizeCoordinatePair(point[0], point[1]);
+  }
+
+  if (point && typeof point === "object") {
+    const lat = point.lat ?? point.latitude;
+    const lng = point.lng ?? point.lon ?? point.longitude;
+    if (lat != null && lng != null) {
+      return normalizeCoordinatePair(lat, lng);
+    }
+  }
+
+  return null;
+};
+
+const normalizeGeometryToLeaflet = (geometry, routeKey) => {
+  if (!geometry) return [];
+
+  const rawPoints =
+    geometry?.type === "LineString" && Array.isArray(geometry?.coordinates)
+      ? geometry.coordinates
+      : Array.isArray(geometry)
+      ? geometry
+      : Array.isArray(geometry?.coordinates)
+      ? geometry.coordinates
+      : null;
+
+  if (!rawPoints) {
+    console.warn("SafeRouteNavigator geometry normalization failed: unsupported shape", {
+      routeKey,
+    });
+    return [];
+  }
+
+  const normalized = rawPoints
+    .map((point) => extractPoint(point))
+    .filter((point) => Array.isArray(point));
+
+  if (normalized.length < 2 && rawPoints.length > 0) {
+    console.warn("SafeRouteNavigator geometry normalization failed: insufficient points", {
+      routeKey,
+      validPoints: normalized.length,
+      totalPoints: rawPoints.length,
+    });
+  }
+
+  return normalized;
+};
+
 function PinPicker({ pinMode, onPick }) {
   useMapEvents({
     click: (event) => {
@@ -183,6 +251,19 @@ const SafeRouteNavigator = ({ user }) => {
           usePredictedPollution: true,
         });
 
+        const safeGeometry = normalizeGeometryToLeaflet(
+          payload?.safe_route?.geometry || payload?.route?.geometry || payload?.safe_route?.coordinates || payload?.route?.coordinates,
+          "safe"
+        );
+        const fastestGeometry = normalizeGeometryToLeaflet(
+          payload?.fastest_route?.geometry || payload?.fastest_route?.coordinates,
+          "fastest"
+        );
+        const balancedGeometry = normalizeGeometryToLeaflet(
+          payload?.balanced_route?.geometry || payload?.balanced_route?.coordinates,
+          "balanced"
+        );
+
         const mappedRoutes = [
           {
             id: 0,
@@ -210,7 +291,7 @@ const SafeRouteNavigator = ({ user }) => {
             ],
             color: "green",
             comparison: `${Number(payload?.exposure_reduction_percent || 0).toFixed(0)}% safer`,
-            geometry: payload?.safe_route?.geometry || [],
+            geometry: safeGeometry,
           },
           {
             id: 1,
@@ -234,7 +315,7 @@ const SafeRouteNavigator = ({ user }) => {
             ],
             color: "orange",
             comparison: "Baseline",
-            geometry: payload?.fastest_route?.geometry || [],
+            geometry: fastestGeometry,
           },
           {
             id: 2,
@@ -258,7 +339,7 @@ const SafeRouteNavigator = ({ user }) => {
             ],
             color: "yellow",
             comparison: `${Number(payload?.pollution_saved_percent || 0).toFixed(0)}% safer`,
-            geometry: payload?.balanced_route?.geometry || [],
+            geometry: balancedGeometry,
           },
         ];
 
@@ -433,11 +514,11 @@ const SafeRouteNavigator = ({ user }) => {
           </button>
         </div>
 
-        <div className="col-span-12 sm:col-span-6 xl:col-span-1">
+        <div className="col-span-12 sm:col-span-6 xl:col-span-2">
           <button
             type="button"
             onClick={() => setPinMode("destination")}
-            className={`w-full px-3 py-2 rounded-lg text-xs font-semibold border ${
+            className={`w-full px-3 py-2.5 rounded-lg text-sm font-semibold border whitespace-nowrap ${
               pinMode === "destination"
                 ? "bg-rose-50 border-rose-300 text-rose-700"
                 : "bg-white border-gray-200 text-gray-600"
@@ -454,7 +535,7 @@ const SafeRouteNavigator = ({ user }) => {
           <select
             value={selectedRoute}
             onChange={(e) => setSelectedRoute(parseInt(e.target.value, 10))}
-            className="w-full px-3 py-2.5 rounded-lg border border-gray-200 focus:border-primary focus:outline-none text-sm transition-colors cursor-pointer"
+            className="w-fit max-w-full px-3 py-2.5 rounded-lg border border-gray-200 focus:border-primary focus:outline-none text-sm transition-colors cursor-pointer"
           >
             {routes.map((r, i) => (
               <option key={i} value={i}>
@@ -528,7 +609,7 @@ const SafeRouteNavigator = ({ user }) => {
             {/* Route Polylines: render all 3 routes like older map */}
             {routes.map((candidate, idx) => {
               const positions = Array.isArray(candidate.geometry) && candidate.geometry.length > 1
-                ? candidate.geometry.map((point) => [point.lat, point.lng])
+                ? candidate.geometry
                 : idx === selectedRoute
                 ? generateRouteCoordinates()
                 : [];
@@ -596,7 +677,7 @@ const SafeRouteNavigator = ({ user }) => {
           exit={{ opacity: 0, y: -20 }}
           className="bg-white rounded-2xl shadow-card border border-gray-100 p-6"
         >
-          <div className="grid grid-cols-3 gap-6 items-start mb-6">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start mb-6">
             {/* Route Details */}
             <div>
               <h4 className="font-bold text-gray-900 text-lg mb-2">
@@ -676,7 +757,7 @@ const SafeRouteNavigator = ({ user }) => {
               <FiWind className="w-4 h-4 text-primary" />
               Air Quality by Zone
             </h5>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               {route.zones.map((zone, i) => (
                 <motion.div
                   key={i}

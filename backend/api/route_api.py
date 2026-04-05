@@ -1,7 +1,9 @@
 import json
+from typing import Any
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -14,6 +16,7 @@ from backend.routing.safe_route_engine import SafeRouteEngine
 from backend.services.directions_service import DirectionsService
 from backend.services.pollution_grid_job import POLLUTION_GRID_REDIS_KEY
 from backend.services.pollution_service import PollutionService
+from backend.utils.geo_utils import to_geojson_linestring
 
 router = APIRouter(prefix="/routes", tags=["routes"])
 directions_service = DirectionsService()
@@ -45,7 +48,7 @@ class RouteOption(BaseModel):
     distance_km: float
     exposure_score: float
     strategy: str
-    geometry: list[dict[str, float]]
+    geometry: dict[str, Any]
 
 
 class SafeRouteResponse(BaseModel):
@@ -61,9 +64,9 @@ class SafeRouteCachedResponse(BaseModel):
     risk_level: str
     route_type: Literal["fastest", "balanced", "cleanest", "safe", "safest"]
     uses_predicted_pollution: bool
-    fastest: list[list[float]]
-    safe: list[list[float]]
-    balanced: list[list[float]]
+    fastest: dict[str, Any]
+    safe: dict[str, Any]
+    balanced: dict[str, Any]
     fastest_route: dict
     safe_route: dict
     balanced_route: dict
@@ -87,7 +90,7 @@ class GraphPrecomputeResponse(BaseModel):
 
 
 class GraphRouteResponse(BaseModel):
-    geometry: list[dict[str, float]]
+    geometry: dict[str, Any]
     distance_km: float
     duration_minutes: float
     exposure_score: float
@@ -99,7 +102,7 @@ class GraphRouteOptionResponse(BaseModel):
     route_type: Literal["fastest", "balanced", "safest"]
     weight_distance: float
     weight_pollution: float
-    geometry: list[dict[str, float]]
+    geometry: dict[str, Any]
     distance_km: float
     duration_minutes: float
     pollution_exposure: float
@@ -115,6 +118,50 @@ class GraphMultiObjectiveResponse(BaseModel):
     safest_route: GraphRouteOptionResponse
 
 
+def _as_geojson_linestring(geometry: Any) -> dict[str, Any]:
+    if isinstance(geometry, dict) and geometry.get("type") == "LineString":
+        coordinates = geometry.get("coordinates", [])
+        if isinstance(coordinates, list):
+            return to_geojson_linestring(coordinates)
+        return {"type": "LineString", "coordinates": []}
+
+    if isinstance(geometry, list):
+        return to_geojson_linestring(geometry)
+
+    return {"type": "LineString", "coordinates": []}
+
+
+def _normalize_route_geojson(route: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(route)
+    geometry = normalized.get("geometry") or normalized.get("coordinates") or []
+    geojson = _as_geojson_linestring(geometry)
+    normalized["geometry"] = geojson
+    normalized["coordinates"] = list(geojson.get("coordinates", []))
+    return normalized
+
+
+def _normalize_bundle_geojson(bundle: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(bundle)
+
+    if isinstance(normalized.get("routes"), list):
+        normalized["routes"] = [
+            _normalize_route_geojson(route)
+            for route in normalized["routes"]
+            if isinstance(route, dict)
+        ]
+
+    for key in ["route", "fastest_route", "balanced_route", "safe_route", "cleanest_route", "safest_route"]:
+        value = normalized.get(key)
+        if isinstance(value, dict):
+            normalized[key] = _normalize_route_geojson(value)
+
+    for key in ["fastest", "balanced", "safe"]:
+        value = normalized.get(key)
+        normalized[key] = _as_geojson_linestring(value)
+
+    return normalized
+
+
 @router.post("/safe", response_model=SafeRouteResponse)
 async def get_safe_route(payload: RouteRequest) -> SafeRouteResponse:
     pollution_grid_payload = await redis_client.get(POLLUTION_GRID_REDIS_KEY)
@@ -127,7 +174,8 @@ async def get_safe_route(payload: RouteRequest) -> SafeRouteResponse:
             use_forecast=False,
         )
 
-    route_bundle = route_controller.build_route_bundle(
+    route_bundle = await run_in_threadpool(
+        route_controller.build_route_bundle,
         start_lat=payload.origin_lat,
         start_lon=payload.origin_lng,
         end_lat=payload.destination_lat,
@@ -146,18 +194,19 @@ async def get_safe_route(payload: RouteRequest) -> SafeRouteResponse:
     options: list[RouteOption] = []
     seen: set[str] = set()
     for route in selected:
-        route_id = str(route.get("route_id", ""))
+        normalized_route = _normalize_route_geojson(route)
+        route_id = str(normalized_route.get("route_id", ""))
         if not route_id or route_id in seen:
             continue
         seen.add(route_id)
         options.append(
             RouteOption(
                 route_id=route_id,
-                duration_minutes=float(route.get("duration_minutes", 0.0)),
-                distance_km=float(route.get("distance_km", 0.0)),
-                exposure_score=float(route.get("exposure_score", 0.0)),
-                strategy=str(route.get("route_type", route.get("strategy", "safe"))),
-                geometry=list(route.get("geometry", [])),
+                duration_minutes=float(normalized_route.get("duration_minutes", 0.0)),
+                distance_km=float(normalized_route.get("distance_km", 0.0)),
+                exposure_score=float(normalized_route.get("exposure_score", 0.0)),
+                strategy=str(normalized_route.get("route_type", normalized_route.get("strategy", "safe"))),
+                geometry=normalized_route.get("geometry", {"type": "LineString", "coordinates": []}),
             )
         )
 
@@ -184,15 +233,16 @@ async def get_safe_route_cached(
     )
 
     def _select_route(bundle: dict, selected_route_type: str) -> dict:
+        normalized_bundle = _normalize_bundle_geojson(bundle)
         normalized_route_type = "safe" if selected_route_type in {"safest", "cleanest"} else selected_route_type
         selected_route = {
-            "fastest": bundle["fastest_route"],
-            "balanced": bundle["balanced_route"],
-            "safe": bundle["safe_route"],
+            "fastest": normalized_bundle["fastest_route"],
+            "balanced": normalized_bundle["balanced_route"],
+            "safe": normalized_bundle["safe_route"],
         }[normalized_route_type]
 
         response = {
-            **bundle,
+            **normalized_bundle,
             "route": selected_route,
             "route_type": normalized_route_type,
             "exposure_score": float(selected_route.get("exposure_score", 0.0)),
@@ -217,7 +267,8 @@ async def get_safe_route_cached(
             use_forecast=use_predicted_pollution,
         )
 
-    route_bundle = route_controller.build_route_bundle(
+    route_bundle = await run_in_threadpool(
+        route_controller.build_route_bundle,
         start_lat=start_lat,
         start_lon=start_lon,
         end_lat=end_lat,
@@ -260,7 +311,8 @@ async def get_pollution_heatmap(
     grid_size_m: int = Query(200, ge=100, le=2000),
     use_predicted_pollution: bool = Query(False),
 ) -> dict[str, int | list[dict[str, float | int | str]]]:
-    points = pollution_service.get_pollution_heatmap(
+    points = await run_in_threadpool(
+        pollution_service.get_pollution_heatmap,
         min_lat=min_lat,
         min_lon=min_lon,
         max_lat=max_lat,
@@ -285,7 +337,8 @@ async def precompute_graph_segments(
     replace_existing: bool = Query(True),
     db: Session = Depends(get_db),
 ) -> GraphPrecomputeResponse:
-    payload = graph_loader.precompute_road_segments(
+    payload = await run_in_threadpool(
+        graph_loader.precompute_road_segments,
         db,
         min_lat=min_lat,
         min_lon=min_lon,
@@ -314,7 +367,8 @@ async def graph_safe_route(
     min_lon = min(start_lon, end_lon) - margin
     max_lon = max(start_lon, end_lon) + margin
 
-    adjacency, node_coords = graph_loader.load_graph(
+    adjacency, node_coords = await run_in_threadpool(
+        graph_loader.load_graph,
         db,
         min_lat=min_lat,
         min_lon=min_lon,
@@ -325,9 +379,10 @@ async def graph_safe_route(
     if not node_coords:
         raise ValueError("No precomputed graph data found. Run /api/v1/routes/graph/precompute first.")
 
-    start_node = graph_loader.find_nearest_node(node_coords, start_lat, start_lon)
-    end_node = graph_loader.find_nearest_node(node_coords, end_lat, end_lon)
-    route = graph_loader.route_astar(
+    start_node = await run_in_threadpool(graph_loader.find_nearest_node, node_coords, start_lat, start_lon)
+    end_node = await run_in_threadpool(graph_loader.find_nearest_node, node_coords, end_lat, end_lon)
+    route = await run_in_threadpool(
+        graph_loader.route_astar,
         adjacency,
         node_coords,
         start_node=start_node,
@@ -336,6 +391,7 @@ async def graph_safe_route(
         travel_mode=travel_mode,
     )
     route["algorithm"] = "ALT" if use_alt else "A*"
+    route = _normalize_route_geojson(route)
     return GraphRouteResponse(**route)
 
 
@@ -355,7 +411,8 @@ async def graph_multi_objective_route(
     min_lon = min(start_lon, end_lon) - margin
     max_lon = max(start_lon, end_lon) + margin
 
-    adjacency, node_coords = graph_loader.load_graph(
+    adjacency, node_coords = await run_in_threadpool(
+        graph_loader.load_graph,
         db,
         min_lat=min_lat,
         min_lon=min_lon,
@@ -366,10 +423,11 @@ async def graph_multi_objective_route(
     if not node_coords:
         raise ValueError("No precomputed graph data found. Run /api/v1/routes/graph/precompute first.")
 
-    start_node = graph_loader.find_nearest_node(node_coords, start_lat, start_lon)
-    end_node = graph_loader.find_nearest_node(node_coords, end_lat, end_lon)
+    start_node = await run_in_threadpool(graph_loader.find_nearest_node, node_coords, start_lat, start_lon)
+    end_node = await run_in_threadpool(graph_loader.find_nearest_node, node_coords, end_lat, end_lon)
 
-    payload = graph_loader.route_multi_objective(
+    payload = await run_in_threadpool(
+        graph_loader.route_multi_objective,
         adjacency,
         node_coords,
         start_node=start_node,
@@ -377,4 +435,14 @@ async def graph_multi_objective_route(
         use_alt=use_alt,
         travel_mode=travel_mode,
     )
+    routes = [
+        _normalize_route_geojson(route)
+        for route in payload.get("routes", [])
+        if isinstance(route, dict)
+    ]
+    by_type = {str(route.get("route_type", "")): route for route in routes}
+    payload["routes"] = routes
+    payload["fastest_route"] = by_type.get("fastest", payload.get("fastest_route", {}))
+    payload["balanced_route"] = by_type.get("balanced", payload.get("balanced_route", {}))
+    payload["safest_route"] = by_type.get("safest", payload.get("safest_route", {}))
     return GraphMultiObjectiveResponse(**payload)
