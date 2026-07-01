@@ -15,7 +15,6 @@ import {
   FiShield,
   FiMap,
 } from "react-icons/fi";
-import { useNavigate } from "react-router-dom";
 
 const NAV_ITEMS = [
   { id: "overview", icon: FiGrid, label: "Overview" },
@@ -33,12 +32,11 @@ const BOTTOM_ITEMS = [
 ];
 
 export default function Sidebar({ activeView, setActiveView }) {
-  const navigate = useNavigate();
   const [hoveredItem, setHoveredItem] = useState(null);
 
-  const handleLogout = () => {
+  const handleResetProfile = () => {
     localStorage.removeItem("aeroguard_user");
-    navigate("/onboarding");
+    window.location.assign("/dashboard");
   };
 
   return (
@@ -148,7 +146,7 @@ export default function Sidebar({ activeView, setActiveView }) {
           );
         })}
         <motion.button
-          onClick={handleLogout}
+          onClick={handleResetProfile}
           whileHover={{ x: 2 }}
           whileTap={{ scale: 0.98 }}
           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left text-gray-500 hover:bg-red-50 hover:text-red-600 transition-all duration-200"
@@ -156,7 +154,7 @@ export default function Sidebar({ activeView, setActiveView }) {
           <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-gray-100 text-gray-400 hover:bg-red-100 hover:text-red-500 transition-all">
             <FiLogOut className="text-sm" />
           </div>
-          <span className="text-sm font-semibold">Logout</span>
+          <span className="text-sm font-semibold">Reset Profile</span>
         </motion.button>
       </div>
     </motion.aside>

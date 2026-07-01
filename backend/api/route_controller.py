@@ -52,7 +52,7 @@ class RouteController:
                 len(distinct_sigs),
             )
             synthetic_candidates = self.directions_service.get_synthetic_candidates(
-                (start_lat, start_lon), (end_lat, end_lon)
+                (start_lat, start_lon), (end_lat, end_lon), travel_mode
             )
             synthetic_evaluated = self.pollution_model.evaluate_candidates(
                 candidates=synthetic_candidates,
