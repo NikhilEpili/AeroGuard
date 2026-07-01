@@ -1,0 +1,9 @@
+backend/
+alembic/
+docker/
+scripts/
+Dockerfile
+docker-compose.yml
+alembic.ini
+requirements.txt
+*.py
