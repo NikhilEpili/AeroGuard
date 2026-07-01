@@ -38,6 +38,37 @@ const LEVEL_COLORS = {
   low: { color: "#10B981", fill: "#10B981", opacity: 0.14 },
 };
 
+const toLatLngPositions = (points) => {
+  if (!Array.isArray(points)) return [];
+
+  return points
+    .map((point) => {
+      if (Array.isArray(point) && point.length >= 2) {
+        const first = Number(point[0]);
+        const second = Number(point[1]);
+
+        // Prefer [lng, lat] from backend coordinates, but accept [lat, lng].
+        if (Math.abs(first) <= 180 && Math.abs(second) <= 90) {
+          return [second, first];
+        }
+        if (Math.abs(first) <= 90 && Math.abs(second) <= 180) {
+          return [first, second];
+        }
+      }
+
+      if (point && typeof point === "object") {
+        const lat = Number(point.lat ?? point.latitude);
+        const lng = Number(point.lng ?? point.lon ?? point.longitude);
+        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+          return [lat, lng];
+        }
+      }
+
+      return null;
+    })
+    .filter((position) => Array.isArray(position) && position.length === 2);
+};
+
 function FitBounds({ route }) {
   const map = useMap();
 
@@ -173,7 +204,9 @@ export default function MapNavigator({ user }) {
           usePredictedPollution: true,
         });
 
-        const backendRoute = routePayload?.route?.geometry?.map((point) => [point.lat, point.lng]);
+        const backendRoute = toLatLngPositions(
+          routePayload?.route?.geometry || routePayload?.route?.coordinates || []
+        );
         const routeGeometry = backendRoute?.length ? backendRoute : [start, end];
         setRoute(routeGeometry);
 
@@ -181,17 +214,23 @@ export default function MapNavigator({ user }) {
           {
             id: "fastest",
             type: "fastest",
-            positions: (routePayload?.fastest_route?.geometry || []).map((point) => [point.lat, point.lng]),
+            positions: toLatLngPositions(
+              routePayload?.fastest_route?.geometry || routePayload?.fastest_route?.coordinates || []
+            ),
           },
           {
             id: "balanced",
             type: "balanced",
-            positions: (routePayload?.balanced_route?.geometry || []).map((point) => [point.lat, point.lng]),
+            positions: toLatLngPositions(
+              routePayload?.balanced_route?.geometry || routePayload?.balanced_route?.coordinates || []
+            ),
           },
           {
             id: "safe",
             type: "safe",
-            positions: (routePayload?.safe_route?.geometry || []).map((point) => [point.lat, point.lng]),
+            positions: toLatLngPositions(
+              routePayload?.safe_route?.geometry || routePayload?.safe_route?.coordinates || []
+            ),
           },
         ].filter((opt) => opt.positions.length > 1);
 
@@ -349,31 +388,7 @@ export default function MapNavigator({ user }) {
           </button>
         </div>
 
-        <div className="lg:col-span-2">
-          <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
-            Route Type
-          </label>
-          <select
-            value={selectedRouteType}
-            onChange={(e) => setSelectedRouteType(e.target.value)}
-            className="w-full px-3 py-3 rounded-xl border-2 border-gray-200 focus:border-primary focus:outline-none text-sm transition-colors cursor-pointer bg-white"
-          >
-            {(routeOptions.length > 0
-              ? routeOptions
-              : [{ id: "safe", type: "safe", positions: [] }]
-            ).map((option) => {
-              const exposure = routeOptions.find((candidate) => candidate.type === option.type);
-              const exposureHint = exposure?.positions?.length ? `(${exposure.positions.length} pts)` : "";
-              return (
-                <option key={option.id} value={option.type}>
-                  {routeTypeLabel(option.type)} {exposureHint}
-                </option>
-              );
-            })}
-          </select>
-        </div>
-
-        <div className="lg:col-span-2 flex items-end gap-2">
+        <div className="xl:col-span-2 flex items-end gap-2">
           <button
             type="button"
             onClick={() => setPinMode("start")}
@@ -388,14 +403,13 @@ export default function MapNavigator({ user }) {
           <button
             type="button"
             onClick={() => setPinMode("destination")}
-            className={`w-24 px-3 py-2 rounded-lg text-xs font-semibold border ${
+            className={`w-36  rounded-lg text-xs font-semibold border flex items-center justify-center text-center ${
               pinMode === "destination"
                 ? "bg-rose-50 border-rose-300 text-rose-700"
                 : "bg-white border-gray-200 text-gray-600"
             }`}
           >
-            Pin Destination
-          </button>
+            Pin Destination          </button>
         </div>
       </div>
 

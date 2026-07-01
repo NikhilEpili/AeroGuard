@@ -69,7 +69,7 @@ class DirectionsService:
             return routes
 
         self.logger.warning("OSRM route fetch failed, falling back to synthetic candidates")
-        routes = self._fallback_candidates(start_location, destination)
+        routes = self._fallback_candidates(start_location, destination, travel_mode)
         self.redis.setex(cache_key, self.ROUTE_CACHE_TTL_SECONDS, json.dumps(routes))
         return routes
 
@@ -291,6 +291,7 @@ class DirectionsService:
         self,
         origin: tuple[float, float],
         destination: tuple[float, float],
+        travel_mode: str = "walking",
     ) -> list[dict]:
         """Return three geometrically distinct synthetic candidates.
 
@@ -304,7 +305,7 @@ class DirectionsService:
         2. L-shape  (balanced-biased) – go north/south first then east/west
         3. U-shape  (safe-biased)     – detour around the mid-point
         """
-        return self._fallback_candidates(origin, destination)
+        return self._fallback_candidates(origin, destination, travel_mode)
 
     def merge_unique_routes(self, routes: list[dict | None]) -> list[dict]:
         unique: list[dict] = []
@@ -454,12 +455,17 @@ class DirectionsService:
         digest = hashlib.sha256(key_payload.encode("utf-8")).hexdigest()[:24]
         return f"candidate_routes:{digest}"
 
-    def _fallback_candidates(self, origin: tuple[float, float], destination: tuple[float, float]) -> list[dict]:
+    def _fallback_candidates(
+        self,
+        origin: tuple[float, float],
+        destination: tuple[float, float],
+        travel_mode: str = "walking",
+    ) -> list[dict]:
         distance_km = compute_distance_km(origin[0], origin[1], destination[0], destination[1])
 
-        # Create more varied routes that go through different pollution areas
-        mid_lat = (origin[0] + destination[0]) / 2.0
-        mid_lon = (origin[1] + destination[1]) / 2.0
+        detours = self._build_detour_waypoints(origin, destination)
+        north_detour = detours[0] if len(detours) > 0 else None
+        south_detour = detours[1] if len(detours) > 1 else None
 
         # Route 1: Direct route (fastest)
         direct_geometry = [
@@ -467,17 +473,16 @@ class DirectionsService:
             {"lat": destination[0], "lng": destination[1]},
         ]
 
-        # Route 2: Detour north (balanced) - go through potentially cleaner areas
+        # Route 2/3: Perpendicular detours keep alternatives distinct even when
+        # origin and destination share the same latitude or longitude.
         north_detour_geometry = [
             {"lat": origin[0], "lng": origin[1]},
-            {"lat": min(origin[0], destination[0]) + abs(origin[0] - destination[0]) * 0.3, "lng": (origin[1] + destination[1]) / 2.0},
+            {"lat": north_detour[0], "lng": north_detour[1]} if north_detour else direct_geometry[0],
             {"lat": destination[0], "lng": destination[1]},
         ]
-
-        # Route 3: Detour south (safe) - go through potentially different pollution areas
         south_detour_geometry = [
             {"lat": origin[0], "lng": origin[1]},
-            {"lat": max(origin[0], destination[0]) - abs(origin[0] - destination[0]) * 0.3, "lng": (origin[1] + destination[1]) / 2.0},
+            {"lat": south_detour[0], "lng": south_detour[1]} if south_detour else direct_geometry[1],
             {"lat": destination[0], "lng": destination[1]},
         ]
 
@@ -489,7 +494,7 @@ class DirectionsService:
                 "polyline_coordinates": direct_geometry,
                 "geometry": direct_geometry,
                 "exposure_score": 0.0,
-                "travel_mode": "walking",
+                "travel_mode": travel_mode,
                 "strategy": "fallback_fastest",
             },
             {
@@ -499,7 +504,7 @@ class DirectionsService:
                 "polyline_coordinates": north_detour_geometry,
                 "geometry": north_detour_geometry,
                 "exposure_score": 0.0,
-                "travel_mode": "walking",
+                "travel_mode": travel_mode,
                 "strategy": "fallback_balanced",
             },
             {
@@ -509,7 +514,7 @@ class DirectionsService:
                 "polyline_coordinates": south_detour_geometry,
                 "geometry": south_detour_geometry,
                 "exposure_score": 0.0,
-                "travel_mode": "walking",
+                "travel_mode": travel_mode,
                 "strategy": "fallback_safe",
             },
         ]

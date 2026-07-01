@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { FiBell, FiUser, FiChevronDown, FiX } from "react-icons/fi";
+import { FiBell, FiChevronDown, FiX, FiMoon, FiSun } from "react-icons/fi";
 
 const NOTIFICATIONS = [
   {
@@ -37,7 +37,7 @@ const NOTIFICATIONS = [
   },
 ];
 
-export default function Navbar({ user }) {
+export default function Navbar({ user, isDarkMode, onToggleDarkMode }) {
   const [showNotifs, setShowNotifs] = useState(false);
   const unreadCount = NOTIFICATIONS.filter((n) => n.unread).length;
 
@@ -69,6 +69,17 @@ export default function Navbar({ user }) {
 
       {/* Right: Actions */}
       <div className="flex items-center gap-3">
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={onToggleDarkMode}
+          className="w-10 h-10 rounded-xl bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-600 transition-colors"
+          aria-label={isDarkMode ? "Switch to light mode" : "Switch to dark mode"}
+          title={isDarkMode ? "Light mode" : "Dark mode"}
+        >
+          {isDarkMode ? <FiSun className="text-lg" /> : <FiMoon className="text-lg" />}
+        </motion.button>
+
         {/* AQI pill */}
         <div className="hidden sm:flex items-center gap-2 bg-surface border border-gray-200 px-3 py-1.5 rounded-full">
           <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />

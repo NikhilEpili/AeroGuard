@@ -1,5 +1,4 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import Sidebar from "../components/Sidebar";
 import Navbar from "../components/Navbar";
@@ -19,6 +18,15 @@ const pageVariants = {
   initial: { opacity: 0, y: 16 },
   animate: { opacity: 1, y: 0, transition: { duration: 0.35 } },
   exit: { opacity: 0, y: -8, transition: { duration: 0.2 } },
+};
+
+const DEFAULT_USER = {
+  name: "Guest User",
+  age: 28,
+  location: "Pune",
+  email: "guest@aeroguard.app",
+  conditions: "none",
+  commute: "car",
 };
 
 const SettingsView = ({ user }) => (
@@ -78,15 +86,38 @@ const SettingsView = ({ user }) => (
 );
 
 export default function Dashboard() {
-  const navigate = useNavigate();
   const [activeView, setActiveView] = useState("overview");
   const [user, setUser] = useState(null);
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    const savedTheme = localStorage.getItem("aeroguard_theme");
+    return savedTheme ? savedTheme === "dark" : false;
+  });
 
   useEffect(() => {
     const u = localStorage.getItem("aeroguard_user");
-    if (!u) navigate("/onboarding");
-    else setUser(JSON.parse(u));
-  }, [navigate]);
+    if (!u) {
+      setUser(DEFAULT_USER);
+      return;
+    }
+
+    try {
+      setUser(JSON.parse(u));
+    } catch {
+      setUser(DEFAULT_USER);
+    }
+  }, []);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (isDarkMode) {
+      root.classList.add("dark");
+      localStorage.setItem("aeroguard_theme", "dark");
+      return;
+    }
+
+    root.classList.remove("dark");
+    localStorage.setItem("aeroguard_theme", "light");
+  }, [isDarkMode]);
 
   if (!user) return null;
 
@@ -216,7 +247,11 @@ export default function Dashboard() {
     <div className="flex min-h-screen bg-surface">
       <Sidebar activeView={activeView} setActiveView={setActiveView} />
       <div className="flex-1 flex flex-col min-w-0 ml-[240px]">
-        <Navbar user={user} />
+        <Navbar
+          user={user}
+          isDarkMode={isDarkMode}
+          onToggleDarkMode={() => setIsDarkMode((current) => !current)}
+        />
         <main className="flex-1 px-6 py-5 overflow-auto">
           <div className="max-w-6xl mx-auto space-y-6">
             <AnimatePresence mode="wait">{renderContent()}</AnimatePresence>
